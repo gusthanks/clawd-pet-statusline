@@ -153,14 +153,6 @@ Nothing else leaves your machine, and nothing is stored outside it. With `CLAWD_
 the IP lookup does not happen. To keep the mod off the internet entirely, put
 `CLAWD_WEATHER=off` and `CLAWD_LIMITS=off` in the `env` of settings.json.
 
----|---|---|---|
-| [get.geojs.io](https://www.geojs.io) (backup: [ipwho.is](https://ipwho.is)) | your IP (sent automatically with any request) | finding your city, for the weather | once an hour |
-| [Open-Meteo](https://open-meteo.com) | rounded latitude and longitude | the weather and the time zone | every 15 min |
-| api.anthropic.com | your own Claude login | the statusline usage limits | every 2 min |
-
-Nothing else leaves your machine, and nothing is stored outside it. With `CLAWD_LOCATION`,
-the IP lookup does not happen.
-
 ---
 
 ## In the terminal
