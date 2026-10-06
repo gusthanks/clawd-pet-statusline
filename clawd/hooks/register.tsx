@@ -236,6 +236,59 @@ async function refreshAll($: EngineInterface) {
   await refreshStatus($)
 }
 
+// Limpeza do $.store: cada conversa deixa "effort:<id>" e "lines:<id>" para sempre. A chave
+// "sessions" guarda o último instante em que cada conversa foi vista; as de mais de 7 dias
+// (e as órfãs, sem registro, que sobraram de antes disso existir) são apagadas.
+const SESSION_TTL_MS = 7 * 24 * 3600 * 1000
+const SESSION_TOUCH_MS = 3600 * 1000 // regravar "visto" no máximo de hora em hora: gravação à toa faz a faixa piscar
+
+async function readSessions($: EngineInterface): Promise<Record<string, number>> {
+  const raw = await $.store.get('sessions').catch(() => undefined)
+  const out: Record<string, number> = {}
+  if (raw && typeof raw === 'object' && !Array.isArray(raw)) {
+    for (const [id, at] of Object.entries(raw as Record<string, unknown>)) if (typeof at === 'number') out[id] = at
+  }
+  return out
+}
+
+// Marca a conversa atual como vista agora, só quando o registro mudou de verdade.
+async function touchSession($: EngineInterface) {
+  if (!sessionKey) return
+  const now = await $.clock.now()
+  const seen = await readSessions($)
+  const before = seen[sessionKey]
+  if (typeof before === 'number' && now - before < SESSION_TOUCH_MS) return
+  seen[sessionKey] = now
+  await $.store.set('sessions', seen).catch(() => undefined)
+}
+
+// Apaga o que é de conversa velha ou órfã. A conversa atual nunca sai.
+async function pruneSessions($: EngineInterface) {
+  if (!sessionKey) return
+  try {
+    const now = await $.clock.now()
+    const seen = await readSessions($)
+    const stale = (id: string) => {
+      if (id === sessionKey) return false
+      const at = seen[id]
+      return typeof at !== 'number' || now - at > SESSION_TTL_MS
+    }
+    const gone = new Set<string>()
+    for (const key of await $.store.keys()) {
+      const m = /^(effort|lines):(.+)$/.exec(key)
+      if (!m || !stale(m[2])) continue
+      gone.add(m[2])
+      await $.store.delete(key).catch(() => undefined)
+    }
+    for (const id of Object.keys(seen)) if (stale(id)) gone.add(id)
+    if (!gone.size) return
+    for (const id of gone) delete seen[id]
+    await $.store.set('sessions', seen).catch(() => undefined)
+  } catch {
+    // sem a limpeza desta vez; fica para a próxima conversa
+  }
+}
+
 // O "esforço" (MEDIUM, MAX...) chega nos eventos do turno, como a statusline do terminal o recebe.
 async function noteEffort($: EngineInterface, level: string | undefined) {
   if (level === effort) return
@@ -675,6 +728,10 @@ export const register: Register = on => {
       if (isLines(savedLines) && !nowLines.added && !nowLines.removed && (savedLines.added || savedLines.removed)) {
         await update($, lines, () => savedLines)
       }
+      if (!e.agentId) {
+        await touchSession($)
+        await pruneSessions($)
+      }
     } catch {
       // sem memória guardada, o esforço chega no fim do primeiro turno
     }
@@ -688,6 +745,7 @@ export const register: Register = on => {
 
   on('session.attach', { surface: 'desktop' }, async ($, e, next) => {
     startBandPollers($)
+    await touchSession($)
     return next(e)
   })
 
@@ -848,6 +906,7 @@ export const register: Register = on => {
   on('classic.Stop', async ($, e, next) => {
     if (!e.agent_id) {
       await noteEffort($, e.effort?.level)
+      await touchSession($)
       ultraWorkflow = (e.background_tasks ?? []).some(t => t.type === 'workflow')
       await setUltra($, ultraWanted())
     }

@@ -6,6 +6,10 @@ seguem o [Versionamento Semântico](https://semver.org/lang/pt-BR/).
 
 ## Não lançado
 
+### Adicionado
+
+- Limpeza automática da memória do mod: o esforço e as linhas de conversas não vistas há mais de 7 dias (e as órfãs de versões antigas) são apagados ao começar uma conversa.
+
 ## 0.1.0
 
 Primeira versão pública.

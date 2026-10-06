@@ -18,14 +18,28 @@ const USAGE_JSON = JSON.stringify({
 
 const run = (stdout: string) => ({ exitCode: 0, stdout, stderr: '', isStdoutTruncated: false, isStderrTruncated: false })
 
-type WorldOptions = { sid?: () => string; settings?: () => Record<string, unknown>; store?: Record<string, unknown>; statusline?: string }
+type WorldOptions = { sid?: () => string; settings?: () => Record<string, unknown>; store?: Record<string, unknown>; ownStore?: Map<string, unknown>; statusline?: string }
 
 // O teste faz o papel do motor: a sessão, a statusline, a configuração e a internet.
 function world(on: On, opts: WorldOptions = {}) {
   const clock = mock.clock(on, { now: 1_700_000_000_000 })
   const envs: (Record<string, string> | undefined)[] = []
   const fetches: string[] = []
-  mock.store(on, { effort: 'max', ...opts.store })
+  if (opts.ownStore) {
+    // um store que o teste enxerga (o $ do teste não lê o store)
+    const m = opts.ownStore
+    for (const [k, v] of Object.entries(opts.store ?? {})) m.set(k, v)
+    on('store.get', ($, e) => ({ value: m.get(e.key) }))
+    on('store.set', ($, e) => {
+      m.set(e.key, JSON.parse(JSON.stringify(e.value)))
+      return { value: undefined }
+    })
+    on('store.delete', ($, e) => {
+      m.delete(e.key)
+      return { value: undefined }
+    })
+    on('store.keys', () => ({ value: [...m.keys()] }))
+  } else mock.store(on, { effort: 'max', ...opts.store })
   on('session.cwd', () => ({ value: 'C:/Users/voce' }))
   on('session.root', () => ({ value: 'C:/Users/voce' }))
   on('session.model', () => ({ value: 'claude-opus-5-5[1m]' }))
@@ -461,4 +475,30 @@ test('a conversa abre com a última statusline guardada desta pasta, sem esperar
   const ui = await mountBand($, false)
   expect(await ui.find({ type: 'Text', text: /guardada/ })).toBeDefined()
   await ui.unmount()
+})
+
+test('limpeza do store: conversa velha sai, a atual e a recente ficam, e órfã sem registro sai', async ($, on) => {
+  const DAY = 24 * 3600 * 1000
+  const now = 1_700_000_000_000
+  const store = new Map<string, unknown>()
+  world(on, {
+    ownStore: store,
+    sid: () => 'atual',
+    store: {
+      sessions: { velha: now - 8 * DAY, recente: now - 2 * DAY, atual: now - 30 * DAY },
+      'effort:velha': 'low', 'lines:velha': { added: 1, removed: 0 },
+      'effort:recente': 'high', 'lines:recente': { added: 2, removed: 1 },
+      'effort:atual': 'max', 'lines:atual': { added: 3, removed: 3 },
+      'effort:orfa': 'low', 'lines:orfa': { added: 9, removed: 9 },
+      place: { city: 'x' },
+    },
+  })
+  await start($)
+  const kept = [...store.keys()].filter(k => /^(effort|lines):/.test(k)).sort()
+  expect(kept).toEqual(['effort:atual', 'effort:recente', 'lines:atual', 'lines:recente'])
+  expect(store.get('place')).toEqual({ city: 'x' }) // o que não é de conversa fica
+  const sessions = store.get('sessions') as Record<string, number>
+  expect(Object.keys(sessions).sort()).toEqual(['atual', 'recente'])
+  expect(sessions.atual).toBe(now) // a atual foi marcada como vista agora
+  expect(sessions.recente).toBe(now - 2 * DAY)
 })
