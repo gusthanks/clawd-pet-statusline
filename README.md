@@ -1,8 +1,181 @@
 # clawd-pet-statusline
 
-<p align="center"><img src="docs/band.svg" width="920" alt="A faixa acima da caixa de mensagem: a statusline à esquerda e o Clawd de óculos digitando no laptop à direita"></p>
+<p align="center"><img src="docs/band.svg" width="920" alt="The band above the message box: the statusline on the left and Clawd, wearing glasses, typing on the laptop on the right"></p>
 
-<p align="center"><sub>exemplo com dados fictícios</sub></p>
+<p align="center"><sub>example with made-up data</sub></p>
+
+**Version:** 0.1.0 · see the [CHANGELOG](CHANGELOG.md).
+
+**Clawd**, the little orange Claude Code crab, living animated in the band right above the
+message box of the app, next to a **statusline** that updates itself (folder, model, context,
+usage limits and the weather where you are).
+
+He reacts to what is going on: he grabs the laptop when you send a message, puts on glasses
+when Claude reads files, sweats when the context fills up, opens an umbrella when it rains in
+your city, sets off fireworks on `git commit`... The full list is in the [sheet](#the-sheet-what-each-animation-means).
+
+> Fan project, **unofficial**, not affiliated with Anthropic. "Claude", "Claude Code" and
+> Clawd belong to Anthropic. The pixel drawings and the laptop animation in this repository
+> were made for him.
+
+*[Português abaixo](#português)*
+
+> **Tested only on Windows 11, with app version 2.1.288.** The code finds your user folder in
+> a portable way (`~/.claude`), but nobody has run it on macOS or Linux yet. If you try it
+> there, please [open an issue](https://github.com/gusthanks/clawd-pet-statusline/issues)
+> telling us whether it worked, with your system and app version.
+
+---
+
+## The sheet: what each animation means
+
+The images below are generated straight from the code (`tools/make-sheet.py`), so they are
+exactly what you see in the app.
+
+### Everyday
+
+| | What you see | When it happens |
+|---|---|---|
+| <img src="docs/sheet/idle.svg" width="420"> | **Strolling** | Nothing going on: he walks along the track and looks around. |
+| <img src="docs/sheet/work.svg" width="420"> | **Message in** | You sent a message: he waves, runs to the corner, grabs the laptop and opens it. |
+| <img src="docs/sheet/party.svg" width="420"> | **Celebrating** | The reply finished fine: he puts the laptop away and jumps with confetti. |
+| <img src="docs/sheet/oops.svg" width="420"> | **Startled** | The turn ended with an error. |
+| <img src="docs/sheet/sleep.svg" width="420"> | **Sleeping** | 10 idle minutes (3 at night). A tap wakes him up. |
+
+### Working (the accessory shows what Claude is doing)
+
+| | What you see | When it happens |
+|---|---|---|
+| <img src="docs/sheet/read.svg" width="420"> | **Glasses** | Reading files (Read, Grep, Glob). |
+| <img src="docs/sheet/web.svg" width="420"> | **Magnifier** | Searching the web (WebSearch, WebFetch, browser). |
+| <img src="docs/sheet/edit.svg" width="420"> | **Little hammer** | Editing files (Edit, Write). |
+| <img src="docs/sheet/helpers.svg" width="420"> | **Mini-Clawds** | One per running subagent, each on its own laptop (up to 6; then a "+N" shows up). |
+| <img src="docs/sheet/ultracode.svg" width="420"> | **Purple aura + light streak** | Ultracode mode, or a workflow running in the background. |
+| <img src="docs/sheet/compact.svg" width="420"> | **Press** | Claude is compacting the conversation context. |
+| <img src="docs/sheet/fireworks.svg" width="420"> | **Fireworks** | Right after a successful `git commit` or `git push`. |
+
+### Warnings (he reads the statusline)
+
+| | What you see | When it happens |
+|---|---|---|
+| <img src="docs/sheet/tired.svg" width="420"> | **Sweating** | The context is above 80%. |
+| <img src="docs/sheet/worried.svg" width="420"> | **Worried** (eyebrows + "!" bubble) | The 5-hour limit is above 90%. |
+| <img src="docs/sheet/pause.svg" width="420"> | **"pausa?"** (break?) | One hour of non-stop work: he stretches and suggests a break. |
+
+### Time and weather
+
+| | What you see | When it happens |
+|---|---|---|
+| <img src="docs/sheet/morning.svg" width="420"> | **Coffee** | From 6am to 11am, idle. |
+| <img src="docs/sheet/night.svg" width="420"> | **Small hours** | From midnight to 5am: he yawns and falls asleep sooner. |
+| <img src="docs/sheet/rain.svg" width="420"> | **Umbrella** | It is raining where you are: he wears the umbrella on his head and the track gets rain. |
+| <img src="docs/sheet/rain-work.svg" width="420"> | **Big umbrella** | Raining and working: it covers him and the laptop. |
+
+### Playing with him
+
+| | What you see | When it happens |
+|---|---|---|
+| <img src="docs/sheet/tap.svg" width="420"> | **Tap** | Click him: he flattens and pops out a star. |
+| <img src="docs/sheet/dizzy.svg" width="420"> | **Dizzy** | Four taps in 3 seconds: spinning eyes and little stars. |
+
+---
+
+## The statusline
+
+In the same band, to the left of Clawd:
+
+- 📂 the conversation's folder, with lines changed (`+12 -3`) and the current weather (☁️ 22°);
+- 🌀 the model, the effort (MEDIUM, HIGH, MAX...) and how much of the context is used;
+- ⏳ and 📅 the 5-hour and 7-day usage limits, with the time until they renew.
+
+It updates itself: every 20 seconds, and the moment something changes. The limits come
+straight from your account, like the usage panel in the app.
+
+---
+
+## Install
+
+**You need:** the Claude Code app (Code tab, on desktop) in a version with mod support
+(tested on 2.1.288) and [Node.js](https://nodejs.org) 18 or newer.
+
+```bash
+git clone https://github.com/gusthanks/clawd-pet-statusline.git
+cd clawd-pet-statusline
+node install.mjs
+```
+
+Then **open a new conversation** in the app. Conversations that were already open stay as they were.
+
+The installer:
+1. copies the `clawd/` folder to `~/.claude/mods/clawd` (a previous version becomes `.bak-<date>`);
+2. copies the statusline to `~/.claude/statusline-rgb.js`, if you don't have one there yet;
+3. backs up your `~/.claude/settings.json` and adds one line:
+
+```json
+"env": { "CLAUDE_CODE_PLUGIN_DIRS": "~/.claude/mods/clawd" }
+```
+
+The `settings.json` lives in `.claude` inside your user folder: `~/.claude/settings.json` on
+macOS and Linux, `C:\Users\<you>\.claude\settings.json` on Windows. The installer writes the
+full path of your own machine there (on Windows, something like `C:/Users/<you>/.claude/mods/clawd`).
+
+**To turn it off:** `node install.mjs --uninstall` (removes only that line; the files stay).
+
+**To update:** `git pull` and run `node install.mjs` again.
+
+### Optional tweaks (variables in the `env` of settings.json)
+
+More variables are coming soon. Each row below is one variable, so adding one is just adding a row.
+
+| Variable | What it does |
+|---|---|
+| `CLAWD_LOCATION` | Pins the weather location, for example `"-23.55,-46.63"`. Without it, the place comes from your internet connection. |
+| `CLAWD_STATUSLINE` | Uses another statusline script instead of `~/.claude/statusline-rgb.js`. |
+
+If the band is narrow, the statusline switches to the compact format. To force compact
+always, create the empty file `~/.claude/statusline-narrow`.
+
+---
+
+## Privacy: who the mod talks to
+
+| Service | What is sent | What for | How often |
+|---|---|---|---|
+| [get.geojs.io](https://www.geojs.io) (backup: [ipwho.is](https://ipwho.is)) | your IP (sent automatically with any request) | finding your city, for the weather | once an hour |
+| [Open-Meteo](https://open-meteo.com) | rounded latitude and longitude | the weather and the time zone | every 15 min |
+| api.anthropic.com | your own Claude login | the statusline usage limits | every 2 min |
+
+Nothing else leaves your machine, and nothing is stored outside it. With `CLAWD_LOCATION`,
+the IP lookup does not happen.
+
+---
+
+## In the terminal
+
+The mod also loads in the terminal `claude`, but there you only get the orange block logo
+above the prompt, because the terminal can't draw the animations. In automatic commands
+(`claude -p`) he stays still and costs nothing.
+
+---
+
+## For tinkerers
+
+The file tree is in the [Portuguese section](#para-quem-quer-mexer) below. The commands are the same:
+
+```bash
+cd clawd/..                         # the folder that contains clawd/
+claude plugin validate ./clawd      # checks the mod
+claude plugin test ./clawd          # runs the tests
+python tools/make-sheet.py          # rebuilds the sheet
+```
+
+License: [MIT](LICENSE).
+
+---
+
+## Português
+
+**Versão:** 0.1.0 · veja o [CHANGELOG](CHANGELOG.md).
 
 O **Clawd**, o caranguejinho laranja do Claude Code, morando animado na faixa logo acima da
 caixa de mensagem do app, ao lado de uma **statusline** que se atualiza sozinha (pasta,
@@ -16,7 +189,10 @@ na sua cidade, solta fogos no `git commit`... A lista completa está na [sheet](
 > Clawd são da Anthropic. Os desenhos em pixel e a animação do laptop deste repositório
 > foram feitos para ele.
 
-*[English below](#english)*
+> **Testado só no Windows 11, com o app na versão 2.1.288.** O código acha a sua pasta de
+> usuário de forma portátil (`~/.claude`), mas ninguém rodou no Mac nem no Linux ainda. Se você
+> testar por lá, por favor [abra uma issue](https://github.com/gusthanks/clawd-pet-statusline/issues)
+> contando se funcionou, com o seu sistema e a versão do app.
 
 ---
 
@@ -105,14 +281,20 @@ O instalador:
 3. guarda uma cópia do seu `~/.claude/settings.json` e acrescenta uma linha:
 
 ```json
-"env": { "CLAUDE_CODE_PLUGIN_DIRS": "C:/Users/voce/.claude/mods/clawd" }
+"env": { "CLAUDE_CODE_PLUGIN_DIRS": "~/.claude/mods/clawd" }
 ```
+
+O `settings.json` fica na pasta `.claude` dentro da sua pasta de usuário: `~/.claude/settings.json`
+no Mac e no Linux, `C:\Users\<você>\.claude\settings.json` no Windows. O instalador grava lá o
+caminho completo da sua máquina (no Windows, algo como `C:/Users/<você>/.claude/mods/clawd`).
 
 **Para desligar:** `node install.mjs --uninstall` (tira só essa linha; os arquivos ficam).
 
 **Para atualizar:** `git pull` e `node install.mjs` de novo.
 
 ### Ajustes opcionais (variáveis no `env` do settings.json)
+
+Mais variáveis chegam em breve. Cada linha da tabela é uma variável, então acrescentar uma é só acrescentar uma linha.
 
 | Variável | Para quê |
 |---|---|
@@ -174,36 +356,3 @@ python tools/make-sheet.py          # refaz a sheet
 ```
 
 Licença: [MIT](LICENSE).
-
----
-
-## English
-
-**clawd-pet-statusline** puts an animated Clawd (the Claude Code crab) in the band right above
-the message box of the Claude Code desktop app, next to a self-updating statusline: folder
-and lines changed, model, effort, context, 5-hour and 7-day usage limits, and the weather
-where you are.
-
-He reacts to what's going on. He grabs the laptop when you send a message and wears glasses
-while Claude reads files. He picks up a magnifier for web searches and a hammer while editing.
-He sweats when the context is above 80%, gets worried when the 5-hour limit is above 90%, and
-wears an umbrella hat when it rains in your city. You also get fireworks on `git commit` or
-`git push`, mini-Clawds for running subagents, a purple aura in ultracode, a press while the
-context is compacting, and a "pausa?" (break?) sign after an hour of non-stop work. Click him
-for a tap, or tap four times to make him dizzy. The table above shows every animation.
-
-**Install:** you need the Claude Code desktop app with mod support (tested on 2.1.288) and
-Node.js 18+. Run `git clone` with the URL above, then `node install.mjs`, then open a **new**
-conversation. The installer copies the mod to `~/.claude/mods/clawd`, adds it to
-`env.CLAUDE_CODE_PLUGIN_DIRS` in `~/.claude/settings.json` (it backs that file up first), and
-installs the statusline if you don't have one. To turn it off, run `node install.mjs --uninstall`.
-
-**Privacy:**
-- Your approximate city comes from your IP (geojs.io, with ipwho.is as backup), once an hour.
-  Set `CLAWD_LOCATION="lat,lon"` to skip this.
-- The weather comes from Open-Meteo every 15 minutes.
-- Usage limits come from your own Claude login every 2 minutes.
-
-Nothing else leaves your machine.
-
-Unofficial fan project, not affiliated with Anthropic. Code under the MIT license.
