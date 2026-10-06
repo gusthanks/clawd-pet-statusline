@@ -2,12 +2,12 @@ import { atom, read, update } from 'claude-code'
 import type { EngineInterface, HttpInit, HttpResponse, Register } from 'claude-code'
 import type { Activity, ClawdMood, Lines, SavedScene, StatusSpan, Weather } from '../types'
 import { fitMinis, helpersZone, ORANGE } from './art'
-import { changedLines, gitHappened, isLines } from './git'
+import { changedLines, gitHappened, isLines, testVerdict } from './git'
 import type { Ran } from './git'
 import { BOX_W, CELL, CH_PX, LANE_GAP_CH, LANE_MIN_CH, LANE_MIN_H, LANE_W, laneSvg, LINE_PX, PAD, PARK_PX, SVG_SAFE, wideFits } from './lane'
 import { LIMITS_BACKOFF_MS, LIMITS_EVERY_MS, LIMITS_FRESH_MS, USAGE_URL, windowOf } from './limits'
 import type { Window } from './limits'
-import { activityFor, ALT, ASK_S, BREAK_GAP_S, buildScene, FIREWORKS_S, hatFor, parseBirthday, OOPS_S, PARTY_S, PAUSE_EVERY_S, PAUSE_S, posAt, SLEEP_NIGHT_S, SLEEP_S, STREAK_S } from './scenes'
+import { activityFor, ALT, ASK_S, BREAK_GAP_S, buildScene, FIREWORKS_S, hatFor, parseBirthday, OOPS_S, PARTY_S, PASS_S, PAUSE_EVERY_S, PAUSE_S, posAt, SLEEP_NIGHT_S, SLEEP_S, STREAK_S } from './scenes'
 import type { Birthday, Flags, SceneKind, Spec } from './scenes'
 import { parseAnsi, prettyModel } from './statusline'
 import { clawdSpan, parseTap, TAP_COMBO_MS, TAP_COMBO_N, TAP_KEY, TAP_LOG_MAX, tapScene } from './tapinha'
@@ -47,6 +47,8 @@ const savedRunning = atom({ plugin: 'clawd', key: 'running' } as const, {} as Re
 const compacting = atom({ plugin: 'clawd', key: 'compacting' } as const, false)
 // O Claude parou esperando o seu sim numa permissão: o Clawd larga o laptop e chama você.
 const asking = atom({ plugin: 'clawd', key: 'asking' } as const, false)
+// Uma reação rápida a um teste que rodou durante o turno: '' (nenhuma), 'pass' ou 'oops'.
+const reaction = atom({ plugin: 'clawd', key: 'reaction' } as const, '' as '' | 'pass' | 'oops')
 // Quantos tapinhas acertaram o Clawd. O valor não importa: a faixa lê o número só para se redesenhar na hora.
 const taps = atom({ plugin: 'clawd', key: 'taps' } as const, 0)
 
@@ -542,6 +544,8 @@ let nowHour = 12
 let streakStartAt = -1
 let lastPauseAt = -Infinity
 let fireworksUntilAt = -1
+let reactionUntilAt = -1
+let reactionNow: '' | 'pass' | 'oops' = ''
 let askedAt = -1 // quando o pedido de permissão chegou (-1: nenhum esperando)
 let askTool = '' // a ferramenta que pediu ('' quando só o aviso chegou e não se sabe qual)
 let lastRequestAt = -Infinity // o último PermissionRequest, para o aviso de reserva não repetir
@@ -661,6 +665,22 @@ async function celebrate($: EngineInterface) {
   await update($, fireworks, () => true)
 }
 
+// Um teste terminou (agente principal): passou, a garra sobe; falhou, o susto. Só grava se mudou.
+async function reactToTest($: EngineInterface, verdict: 'pass' | 'fail') {
+  const next = verdict === 'pass' ? 'pass' : 'oops'
+  reactionUntilAt = (await $.clock.now()) + (next === 'pass' ? PASS_S : OOPS_S) * 1000
+  if (reactionNow === next) return
+  reactionNow = next
+  await update($, reaction, () => next)
+}
+
+async function clearReaction($: EngineInterface) {
+  reactionUntilAt = -1
+  if (reactionNow === '') return
+  reactionNow = ''
+  await update($, reaction, () => '' as const)
+}
+
 async function addLines($: EngineInterface, delta: Lines) {
   if (!delta.added && !delta.removed) return
   await update($, lines, prev => ({ added: prev.added + delta.added, removed: prev.removed + delta.removed }))
@@ -686,6 +706,7 @@ async function stepClock($: EngineInterface) {
       await setMood($, 'pause', PAUSE_S)
     } else if (now - Math.max(lastActiveAt, lastTapAt) >= sleepAfter) await setMood($, 'sleep')
   }
+  if (reactionUntilAt >= 0 && now >= reactionUntilAt) await clearReaction($)
   if (askedAt >= 0 && now - askedAt >= ASK_S * 1000) await stopAsking($) // ninguém respondeu: volta ao normal
   if (fireworksUntilAt >= 0 && now >= fireworksUntilAt) {
     fireworksUntilAt = -1
@@ -802,6 +823,9 @@ export const register: Register = on => {
     await update($, mood, () => 'idle' as ClawdMood)
     await update($, activity, () => '' as Activity) // um recarregamento não deixa acessório velho
     await update($, fireworks, () => false)
+    reactionUntilAt = -1
+    reactionNow = ''
+    await update($, reaction, () => '' as const)
     await update($, compacting, () => false)
     askedAt = -1
     askTool = ''
@@ -867,6 +891,7 @@ export const register: Register = on => {
       ajudantes: [...running.keys()],
       linhas: await read($, lines),
       fogos: await read($, fireworks),
+      teste: reactionNow || null,
       ultracode: await read($, ultra),
       sequencia_min: streakStartAt >= 0 ? Math.round((now - streakStartAt) / 60_000) : null,
       ultracode_motivos: { turno: ultraTurn, conversa: ultraSession, workflow: ultraWorkflow, sobra: ultraGrace, configuracao: standingSeen },
@@ -902,6 +927,10 @@ export const register: Register = on => {
       }
       if ((e.tool === 'Bash' || e.tool === 'PowerShell') && gitHappened((e as unknown as { command?: unknown }).command, ran)) {
         await celebrate($)
+      }
+      if (!e.agentId && (e.tool === 'Bash' || e.tool === 'PowerShell')) {
+        const verdict = testVerdict((e as unknown as { command?: unknown }).command, ran)
+        if (verdict) await reactToTest($, verdict)
       }
     } catch {
       // contar linhas e soltar fogos é enfeite: nunca atrapalha a ferramenta
@@ -962,6 +991,7 @@ export const register: Register = on => {
       return next(e)
     }
     working = false
+    await clearReaction($).catch(() => undefined) // o fim do turno tem a sua própria reação
     await stopAsking($).catch(() => undefined)
     markActivity(await $.clock.now())
     if (ultraTurn) ultraGrace = true
@@ -1087,7 +1117,8 @@ export const register: Register = on => {
     const stored = await read($, mood)
     const squeezing = await read($, compacting)
     const calling = await read($, asking)
-    const kind: SceneKind = calling ? 'ask' : squeezing ? 'compact' : e.props.isWorking ? 'work' : stored
+    const reacting = await read($, reaction)
+    const kind: SceneKind = calling ? 'ask' : squeezing ? 'compact' : reacting ? reacting : e.props.isWorking ? 'work' : stored
 
     if (e.surface !== 'desktop') {
       const { Box, Text } = $.ui.resolve(e)

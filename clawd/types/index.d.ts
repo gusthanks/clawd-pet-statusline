@@ -30,6 +30,7 @@ declare module 'claude-code' {
       running: Record<string, string>
       compacting: boolean
       asking: boolean
+      reaction: '' | 'pass' | 'oops'
       taps: number
     }
   }

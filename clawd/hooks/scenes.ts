@@ -5,11 +5,12 @@ import { LAPTOP_FPS, LAPTOP_SEQ } from './laptop'
 // As cenas do Clawd: o que ele faz em cada humor, passo a passo, e quanto tempo cada coisa dura.
 // Tudo aqui é conta pura (sem $): quem guarda a cena atual e decide o humor é o register.tsx.
 
-export type SceneKind = ClawdMood | 'work' | 'compact' | 'ask'
+export type SceneKind = ClawdMood | 'work' | 'compact' | 'ask' | 'pass'
 
 // Quanto tempo cada reação dura, em segundos, e quando ele cochila.
 export const PARTY_S = 5
 export const OOPS_S = 4
+export const PASS_S = 3 // os testes passaram: a garra sobe com o "✓"
 export const SLEEP_S = 10 * 60
 export const SLEEP_NIGHT_S = 3 * 60 // de madrugada ele cochila mais cedo
 export const FIREWORKS_S = 7
@@ -165,6 +166,9 @@ function buildSceneSteps(kind: SceneKind, from: number, laptopOpen: boolean, tra
         loop: [stand(from, 1.2, { eyes: 'wide', motion: 'shake', fx: 'sweat', look: 0 }), stand(from, 1.6, { eyes: 'wide', motion: 'still', fx: 'sweat', look: 0 })],
         laptopAt: Infinity,
       }
+    case 'pass':
+      // os testes passaram: guarda o laptop, vira de frente, levanta a garra e mostra o balão "✓"
+      return { kind, intro: outro, loop: [stand(from, 1, { eyes: 'happy', motion: 'still', body: 'waveA', fx: 'check', look: 0 })], laptopAt: Infinity }
     case 'sleep':
       return { kind, intro: [], loop: [stand(from, 6, { eyes: 'closed', motion: 'snooze', fx: 'zzz', look: 0 })], laptopAt: Infinity }
     case 'compact': {
@@ -217,6 +221,7 @@ export const ALT: Record<SceneKind, string> = {
   work: 'Clawd digitando no laptop',
   party: 'Clawd comemorando',
   oops: 'Clawd assustado com um erro',
+  pass: 'Clawd com a garra levantada: os testes passaram',
   sleep: 'Clawd dormindo',
   pause: 'Clawd sugerindo uma pausa',
   compact: 'Clawd compactando o contexto',

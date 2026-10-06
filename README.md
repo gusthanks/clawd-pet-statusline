@@ -53,6 +53,7 @@ exactly what you see in the app.
 | <img src="docs/sheet/ultracode.svg" width="420"> | **Purple aura + light streak** | Ultracode mode, or a workflow running in the background. |
 | <img src="docs/sheet/compact.svg" width="420"> | **Press** | Claude is compacting the conversation context. |
 | <img src="docs/sheet/fireworks.svg" width="420"> | **Fireworks** | Right after a successful `git commit` or `git push`. |
+| <img src="docs/sheet/pass.svg" width="420"> | **Tests passed** | A test command (`npm test`, `pytest`, `go test`, `cargo test`, `claude plugin test`...) finished fine: he puts the laptop away and raises a claw with a green "✓" for 3 seconds. If the tests fail, he gets the *Startled* scene instead. |
 
 ### Warnings (he reads the statusline)
 
@@ -230,6 +231,7 @@ o que aparece no app.
 | <img src="docs/sheet/ultracode.svg" width="420"> | **Aura roxa + faixa de luz** | Modo ultracode, ou um workflow rodando em segundo plano. |
 | <img src="docs/sheet/compact.svg" width="420"> | **Prensa** | O Claude está compactando o contexto da conversa. |
 | <img src="docs/sheet/fireworks.svg" width="420"> | **Fogos** | Logo depois de um `git commit` ou `git push` que deu certo. |
+| <img src="docs/sheet/pass.svg" width="420"> | **Testes passaram** | Um comando de teste (`npm test`, `pytest`, `go test`, `cargo test`, `claude plugin test`...) terminou bem: ele guarda o laptop e levanta a garra com um "✓" verde por 3 segundos. Se os testes falharem, vira o *Susto*. |
 
 ### Avisos (ele lê a statusline)
 

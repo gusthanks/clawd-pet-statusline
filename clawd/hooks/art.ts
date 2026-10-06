@@ -238,6 +238,10 @@ export const FX = {
   ask:
     `<g>${rect(5, 0, 5, 7, '#ffffff') + rect(9, 7, 1, 1, '#ffffff') + cells([[6, 1], [7, 1], [8, 1], [8, 2], [7, 3], [7, 5]], '#e5484d')}` +
     `<animate attributeName="opacity" values="1;0.35;1" dur="1s" ${LOOP}/></g>`,
+  // testes passaram: um balãozinho branco com "✓" verde, do lado oposto ao da garra levantada
+  check:
+    `<g>${rect(5, 0, 6, 6, '#ffffff') + rect(9, 6, 1, 1, '#ffffff') + cells([[6, 3], [7, 4], [8, 3], [9, 2]], '#2f9e44')}` +
+    `<animate attributeName="opacity" values="1;0.6;1" dur="1s" ${LOOP}/></g>`,
   confetti: Array.from({ length: 14 }, (_, i) => {
     const x = -14 + i * 5
     const dur = 1.3 + (i % 4) * 0.25

@@ -93,7 +93,7 @@ function compile(spec: Spec, part: Step[], flags: Flags): Tracks {
       const on =
         k === pose.fx ||
         (k === 'sweat' && flags.tired) ||
-        (k === 'bang' && flags.worried && !flags.rain && !pose.wave && pose.body !== 'stretch' && spec.kind !== 'sleep')
+        (k === 'bang' && flags.worried && !flags.rain && !pose.wave && pose.body !== 'stretch' && pose.fx !== 'check' && spec.kind !== 'sleep')
       vis(`fx:${k}`, t0, on)
     }
     for (const k of TYPING_PROP_KINDS) {

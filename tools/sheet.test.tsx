@@ -247,6 +247,21 @@ test('dizzy', T, async ($, on) => {
   await ui.unmount()
 })
 
+test('pass', T, async ($, on) => {
+  const c = world(on)
+  await begin($, c)
+  await ($ as Any).turn.start({ text: 'oi', turnId: 't' })
+  await typing($, c, '_pass-antes') // trabalhando, no laço de digitar
+  // os testes passaram: ele guarda o laptop, levanta a garra e mostra o balão "✓"
+  await ($ as Any).tool.call({ tool: 'Bash', command: 'npm test' })
+  let ui = await mountBand($, true)
+  await ui.unmount()
+  await c.advance(1_500)
+  ui = await mountBand($, true)
+  await print(ui, 'pass')
+  await ui.unmount()
+})
+
 test('ask', T, async ($, on) => {
   const c = world(on)
   await begin($, c)

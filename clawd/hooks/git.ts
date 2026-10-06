@@ -63,5 +63,33 @@ export function gitHappened(command: unknown, ran: Ran): boolean {
   return wantsCommit && QUIET.test(commitArgs) && !NOTHING.test(out)
 }
 
+// Testes: o comando começa (ou o último pedaço depois de "&&" ou ";" começa) com um rodador de testes conhecido.
+const TEST_CMD = new RegExp(
+  String.raw`^(?:[A-Za-z_]\w*=\S*\s+)*(?:npm\s+(?:t|test|run\s+test\S*)|(?:pnpm|yarn|bun)\s+(?:run\s+)?test\S*|npx\s+(?:--?\S+\s+)*(?:vitest|jest)|vitest|jest|pytest|(?:python3?|py)\s+-m\s+pytest|go\s+test|cargo\s+test|dotnet\s+test|mvn\s+test|(?:\./)?gradlew?(?:\.bat)?\s+test|claude(?:\.cmd)?\s+plugin\s+test)(?=\s|$|[;&|])`,
+  'i',
+)
+// Pistas de falha na saída, só de reserva: o isError do motor é o critério principal.
+const TEST_FAILED = /^\s*(?:---\s+)?FAIL\b|\bFAILED\b|\b[1-9]\d*\s+(?:failed|failing|failures?)\b|\bfailures?:\s*[1-9]/m
+
+export function isTestCommand(command: unknown): boolean {
+  if (typeof command !== 'string') return false
+  const parts = command.split(/&&|;|\r?\n/).map(p => p.trim()).filter(Boolean)
+  if (!parts.length) return false
+  return TEST_CMD.test(parts[0]!) || TEST_CMD.test(parts[parts.length - 1]!)
+}
+
+// 'pass' | 'fail' quando o comando era um teste que terminou; null quando não era, foi negado,
+// ainda roda em segundo plano ou foi interrompido.
+export function testVerdict(command: unknown, ran: Ran): 'pass' | 'fail' | null {
+  if (!isTestCommand(command) || ran.deny !== undefined) return null
+  if (ran.isError) return 'fail'
+  const r = (ran.result ?? {}) as { stdout?: string; stderr?: string; backgroundTaskId?: string; interrupted?: boolean; exitCode?: number; code?: number }
+  if (r.backgroundTaskId || r.interrupted) return null
+  const exit = typeof r.exitCode === 'number' ? r.exitCode : r.code
+  if (typeof exit === 'number' && exit !== 0) return 'fail'
+  const out = `${r.stdout ?? ''}\n${r.stderr ?? ''}`
+  return TEST_FAILED.test(out) ? 'fail' : 'pass'
+}
+
 export const isLines = (v: unknown): v is Lines =>
   !!v && typeof (v as Lines).added === 'number' && typeof (v as Lines).removed === 'number'

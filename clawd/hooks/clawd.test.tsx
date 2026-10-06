@@ -1,5 +1,6 @@
 import { expect, mock, test } from 'claude-code/testing'
 import type { On } from 'claude-code'
+import { isTestCommand, testVerdict } from './git'
 
 const band = (isWorking: boolean) => ({
   component: 'AbovePrompt' as const,
@@ -196,6 +197,67 @@ test('fogos só para commit ou push de verdade; Write novo conta todas as linhas
   // o próprio Claude Code marcou um commit
   await t.tool.call({ tool: 'Bash', command: 'git commit -m "feat"' })
   expect((await report($)).fogos).toBe(true)
+})
+
+test('testes: passou vira "pass", erro vira "oops", outros comandos e subagentes não disparam', { timeout: 60000 }, async ($, on) => {
+  const { clock } = world(on)
+  on('tool.call', ($, e) => {
+    const cmd = String((e as { command?: unknown }).command ?? '')
+    if (cmd.includes('pytest')) return { result: { stdout: '1 failed', stderr: '' } as never, isError: true }
+    if (cmd.includes('cargo')) return { result: { stdout: 'test result: FAILED. 1 passed; 1 failed', stderr: '', interrupted: false } as never }
+    return { result: { stdout: 'ok', stderr: '', interrupted: false } as never }
+  })
+  on('classic.SubagentStart', () => ({}))
+  on('agent.list', () => ({ value: [] }))
+  on('turn.complete', () => ({ text: '' }))
+  on('turn.start', ($, e) => ({ turnId: e.turnId }))
+  await start($)
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const t = $ as any
+  await t.turn.start({ text: 'oi', turnId: 't' })
+
+  const scene = async () => {
+    const ui = await $.ui.mount({ plugin: 'clawd', surface: 'desktop', ...band(true) })
+    await ui.unmount()
+    return (await report($)).cena
+  }
+
+  await t.tool.call({ tool: 'Bash', command: 'ls -la' })
+  expect((await report($)).teste).toBe(null)
+  // um subagente rodando testes não conta
+  await t.tool.call({ tool: 'Bash', command: 'npm test', agentId: 'ajudante-1' })
+  expect((await report($)).teste).toBe(null)
+
+  await t.tool.call({ tool: 'Bash', command: 'cd app && npm test' })
+  expect((await report($)).teste).toBe('pass')
+  expect(await scene()).toBe('pass')
+  // some depois de 3 s
+  await clock.advance(4_000)
+  expect((await report($)).teste).toBe(null)
+  expect(await scene()).toBe('work')
+
+  // com erro: a cena do susto, mesmo no meio do turno
+  await t.tool.call({ tool: 'Bash', command: 'python -m pytest -q' })
+  expect((await report($)).teste).toBe('oops')
+  expect(await scene()).toBe('oops')
+  await clock.advance(5_000)
+  // saída com falha sem isError: também é susto
+  await t.tool.call({ tool: 'Bash', command: 'cargo test' })
+  expect((await report($)).teste).toBe('oops')
+})
+
+test('testVerdict reconhece os rodadores de teste e só eles', async () => {
+  for (const c of ['npm test', 'npm run test:unit', 'pnpm test', 'yarn test', 'bun test', 'npx vitest run', 'npx jest', 'vitest', 'jest --ci', 'pytest -q', 'python -m pytest', 'go test ./...', 'cargo test', 'dotnet test', 'mvn test', 'gradle test', 'claude plugin test ./clawd', 'claude.cmd plugin test ./clawd', 'cd x && npm test', 'git status; pytest', 'CI=1 npm test'])
+    expect(isTestCommand(c), c).toBe(true)
+  for (const c of ['ls', 'npm install', 'echo npm test', 'git commit -m "npm test"', 'cat tests.py', 'npm run build'])
+    expect(isTestCommand(c), c).toBe(false)
+  expect(testVerdict('npm test', { result: { stdout: 'Tests: 3 passed' } })).toBe('pass')
+  expect(testVerdict('npm test', { isError: true })).toBe('fail')
+  expect(testVerdict('npm test', { result: { stdout: 'Tests: 2 failed, 3 passed' } })).toBe('fail')
+  expect(testVerdict('npm test', { result: { stdout: '0 failed, 3 passed' } })).toBe('pass')
+  expect(testVerdict('npm test', { deny: 'não' })).toBe(null)
+  expect(testVerdict('npm test', { result: { backgroundTaskId: 'x' } })).toBe(null)
+  expect(testVerdict('ls', { isError: true })).toBe(null)
 })
 
 test('faixa estreita: o Clawd desce pra linha de baixo; faixa larga: fica ao lado do texto', async ($, on) => {
