@@ -166,6 +166,8 @@ test('rain-work', T, async ($, on) => {
   const c = world(on, { weather: 63 })
   await begin($, c)
   await ($ as Any).turn.start({ text: 'oi', turnId: 't' })
+  // dois subagentes rodando: cada mini-Clawd também ganha o seu guarda-chuva
+  for (const id of ['a1', 'a2']) await ($ as Any).classic.SubagentStart({ agent_id: id, agent_type: 'general-purpose' })
   await typing($, c, 'rain-work')
 })
 

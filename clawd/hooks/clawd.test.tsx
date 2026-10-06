@@ -953,3 +953,30 @@ test('chapéu: chovendo, o guarda-chuva vence e o chapéu some', { timeoutMs: 60
   expect(src).toContain(UMBRELLA_RED)
   expect(src).not.toContain(SANTA_RED)
 })
+
+// ---------- ajudantes na chuva: cada mini-Clawd ganha o seu guarda-chuva ----------
+
+async function helpersLane($: any, on: On, opts: WorldOptions, count: number) {
+  const { clock } = world(on, opts)
+  on('classic.SubagentStart', () => ({}))
+  on('agent.list', () => ({ value: [] }))
+  await start($)
+  for (let i = 1; i <= count; i++) await $.classic.SubagentStart({ agent_id: `ajudante-${i}`, agent_type: 'general-purpose' })
+  const ui = await $.ui.mount({ plugin: 'clawd', surface: 'desktop', ...band(false) })
+  await clock.advance(3_000)
+  const src = String((await ui.find({ type: 'Svg' }))?.props.source)
+  await ui.unmount()
+  return src
+}
+
+test('ajudantes na chuva: cada mini-Clawd usa um guarda-chuva pequeno', { timeoutMs: 60000 }, async ($, on) => {
+  const src = await helpersLane($, on, {}, 2) // o clima do teste é chuva (código 63)
+  expect(src.match(/class="mini-umbrella"/g)).toHaveLength(2)
+  expect(src).toContain(UMBRELLA_RED)
+})
+
+test('ajudantes sem chuva: nenhum guarda-chuva nos minis', { timeoutMs: 60000 }, async ($, on) => {
+  const src = await helpersLane($, on, { env: { CLAWD_WEATHER: 'off' } }, 2)
+  expect(src).not.toContain('mini-umbrella')
+  expect(src).not.toContain(UMBRELLA_RED)
+})

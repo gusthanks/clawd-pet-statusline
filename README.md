@@ -71,7 +71,7 @@ exactly what you see in the app.
 | <img src="docs/sheet/morning.svg" width="420"> | **Coffee** | From 6am to 11am, idle. |
 | <img src="docs/sheet/night.svg" width="420"> | **Small hours** | From midnight to 5am: he yawns and falls asleep sooner, and the lane gets a small crescent moon and a few twinkling stars (the stars go away if it's raining, the moon stays). |
 | <img src="docs/sheet/rain.svg" width="420"> | **Umbrella** | It is raining where you are: he wears the umbrella on his head and the track gets rain. |
-| <img src="docs/sheet/rain-work.svg" width="420"> | **Big umbrella** | Raining and working: it covers him and the laptop. |
+| <img src="docs/sheet/rain-work.svg" width="420"> | **Big umbrella** | Raining and working: it covers him and the laptop. Each mini-Clawd gets a small umbrella of its own, stuck on its head, covering it and its little laptop. |
 | <img src="docs/sheet/holiday.svg" width="420"> | **Dates** | A red Christmas hat on Dec 24 and 25; a colorful party hat with light confetti on Dec 31, Jan 1 and on your birthday (set it with `CLAWD_BIRTHDAY`). When it rains the umbrella wins and the hat goes away. |
 
 ### Playing with him
@@ -249,7 +249,7 @@ o que aparece no app.
 | <img src="docs/sheet/morning.svg" width="420"> | **Cafezinho** | Das 6h às 11h, parado. |
 | <img src="docs/sheet/night.svg" width="420"> | **Madrugada** | Das 0h às 5h: boceja e dorme mais cedo, e a pista ganha uma lua minguante e poucas estrelas piscando (com chuva as estrelas somem, a lua fica). |
 | <img src="docs/sheet/rain.svg" width="420"> | **Guarda-chuva** | Está chovendo onde você está: ele usa o guarda-chuva na cabeça e a pista ganha chuva. |
-| <img src="docs/sheet/rain-work.svg" width="420"> | **Guarda-chuva grande** | Chovendo e trabalhando: cobre ele e o laptop. |
+| <img src="docs/sheet/rain-work.svg" width="420"> | **Guarda-chuva grande** | Chovendo e trabalhando: cobre ele e o laptop. Cada mini-Clawd ganha um guarda-chuva pequeno só dele, preso na cabeça, cobrindo ele e o laptopzinho. |
 | <img src="docs/sheet/holiday.svg" width="420"> | **Datas** | Gorro vermelho de Natal em 24 e 25/12; chapéu de festa colorido, com um confete leve, em 31/12, 1/1 e no seu aniversário (defina com `CLAWD_BIRTHDAY`). Se chove, o guarda-chuva ganha e o chapéu some. |
 
 ### Brincando com ele

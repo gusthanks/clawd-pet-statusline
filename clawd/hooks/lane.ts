@@ -338,7 +338,7 @@ export function laneSvg(spec: Spec, elapsed: number, flags: Flags, height: numbe
     (flags.ultra ? phased(ultraLayer(height), wall) : '') +
     (flags.night ? phased(skyLayer(flags.rain), wall) : '') +
     (flags.rain ? phased(rainLayer(height), wall) : '') +
-    phased(helpersLayer(lane.helpers, lane.cap, BOX_W, BOX_H, CELL, height), wall) +
+    phased(helpersLayer(lane.helpers, lane.cap, BOX_W, BOX_H, CELL, height, flags.rain), wall) +
     // a imagem já nasce com o Clawd onde ele está agora: se o app mostrar um quadro antes de as
     // animações começarem (ele recria a imagem a cada redesenho, como no tapinha), as duas partes
     // da posição (a % da pista e a volta em células) continuam juntas e ele não aparece cortado

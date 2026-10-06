@@ -8,6 +8,7 @@ seguem o [Versionamento Semântico](https://semver.org/lang/pt-BR/).
 
 ### Adicionado
 
+- Na chuva, cada mini-Clawd (um por subagente) ganha um guarda-chuva pequeno, do mesmo estilo do grande: preso na cabeça, cobrindo ele e o laptopzinho. O "+N" sobe para cima da ponta do guarda-chuva. A cena `rain-work` da sheet agora mostra o Clawd grande trabalhando na chuva com dois mini-Clawds de guarda-chuva.
 - Madrugada com lua minguante e estrelas piscando na pista (somem quando chove).
 - Chapéus de data: gorro de Natal em 24 e 25/12 e chapéu de festa em 31/12, 1/1 e no seu aniversário, definido por `CLAWD_BIRTHDAY="DD-MM"`.
 - Reação a comandos de teste (agente principal): passou, ele levanta a garra com "✓" por 3 segundos; falhou, leva um susto.

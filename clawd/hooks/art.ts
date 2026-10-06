@@ -437,16 +437,22 @@ function mini(left: number, i: number): string {
   )
 }
 
+// Chovendo, cada mini-Clawd ganha um guarda-chuva pequeno, do mesmo estilo do grande: preso na
+// cabeça, sem braço, cobrindo ele e o laptop (12 células de largura, 2 de folga para o vizinho).
+// A ponta fica na linha 8, o cabo desce até a cabeça (linha 15).
+const miniUmbrella = (left: number) => `<g class="mini-umbrella">${umbrella(left + 6, 8, 6, 2)}</g>`
+
 // Até seis mini-Clawds (ou os que couberem na pista), do canto direito para a esquerda;
 // passando disso, um "+N" em cima do último. Posições em células, a partir do canto direito.
-export function helpersLayer(count: number, cap: number, boxW: number, boxH: number, cell: number, height: number): string {
+// Com chuva (`rain`), cada um usa o guarda-chuva e o "+N" sobe para cima da ponta dele.
+export function helpersLayer(count: number, cap: number, boxW: number, boxH: number, cell: number, height: number, rain = false): string {
   const shown = Math.min(count, cap, MAX_MINIS)
   if (shown <= 0) return ''
   const leftOf = (i: number) => -MINI_STEP * (i + 1)
-  const minis = Array.from({ length: shown }, (_, i) => mini(leftOf(i), i)).join('')
+  const minis = Array.from({ length: shown }, (_, i) => mini(leftOf(i), i) + (rain ? miniUmbrella(leftOf(i)) : '')).join('')
   const extra =
     count > shown
-      ? `<text x="${leftOf(shown - 1) + 6}" y="13" text-anchor="middle" font-family="monospace" font-weight="bold" font-size="4" fill="#c4b5fd">+${count - shown}</text>`
+      ? `<text x="${leftOf(shown - 1) + 6}" y="${rain ? 7 : 13}" text-anchor="middle" font-family="monospace" font-weight="bold" font-size="4" fill="#c4b5fd">+${count - shown}</text>`
       : ''
   return `<svg x="100%" y="${round(height - boxH * cell)}" width="${boxW * cell}" height="${boxH * cell}" viewBox="0 0 ${boxW} ${boxH}" overflow="visible">${minis}${extra}</svg>`
 }
