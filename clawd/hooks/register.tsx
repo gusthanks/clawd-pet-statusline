@@ -1,36 +1,36 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, HttpInit, HttpResponse, Register } from 'claude-code'
-
 import type { Activity, ClawdMood, Lines, SavedScene, StatusSpan, Weather } from '../types'
-import {
-  BODIES,
-  BODY_KINDS,
-  EYES,
-  EYE_KINDS,
-  FRONT_PROPS,
-  FRONT_PROP_KINDS,
-  FX,
-  FX_KINDS,
-  LOOP,
-  ORANGE,
-  TYPING_PROPS,
-  TYPING_PROP_KINDS,
-  PRESS,
-  ULTRA_AURA,
-  fireworksLayer,
-  helpersLayer,
-  helpersZone,
-  fitMinis,
-  legs,
-  rainLayer,
-  ultraLayer,
-} from './art'
-import type { Body, Eyes, Fx } from './art'
-import { LAPTOP_COLORS, LAPTOP_FPS, LAPTOP_FRAMES, LAPTOP_SEQ } from './laptop'
+import { fitMinis, helpersZone, ORANGE } from './art'
+import { changedLines, gitHappened, isLines } from './git'
+import type { Ran } from './git'
+import { BOX_W, CELL, CH_PX, LANE_GAP_CH, LANE_MIN_CH, LANE_MIN_H, LANE_W, laneSvg, LINE_PX, PAD, PARK_PX, SVG_SAFE, wideFits } from './lane'
+import { LIMITS_BACKOFF_MS, LIMITS_EVERY_MS, LIMITS_FRESH_MS, USAGE_URL, windowOf } from './limits'
+import type { Window } from './limits'
+import { activityFor, ALT, BREAK_GAP_S, buildScene, FIREWORKS_S, OOPS_S, PARTY_S, PAUSE_EVERY_S, PAUSE_S, posAt, SLEEP_NIGHT_S, SLEEP_S, STREAK_S } from './scenes'
+import type { Flags, SceneKind, Spec } from './scenes'
+import { parseAnsi, prettyModel } from './statusline'
+import { clawdSpan, parseTap, TAP_COMBO_MS, TAP_COMBO_N, TAP_KEY, TAP_LOG_MAX, tapScene } from './tapinha'
+import type { Tap } from './tapinha'
+import { PLACE_EVERY_MS, PLACE_SERVICES, WEATHER_EVERY_MS, WEATHER_STALE_MS, weatherEmoji, weatherUrl, WET } from './weather'
+import type { Place } from './weather'
 
 // A faixa logo acima da caixa de mensagem (AbovePrompt): a statusline do usuário à
 // esquerda e, no espaço que sobra à direita, a pista do Clawd. Ele anda, digita no
 // laptop, comemora e reage aos números, sem passar por cima do texto.
+//
+// Este é o módulo que o hooks.json lista: os valores guardados (atoms), os ganchos (on) e
+// tudo o que usa o $. Toda função que recebe o $ precisa morar AQUI: o motor só segue o $
+// para dentro de funções declaradas no mesmo arquivo, nunca através de um import (o
+// validador recusa). Os outros módulos são conta pura, sem $:
+//   scenes.ts      as cenas: o que ele faz em cada humor, passo a passo, e quanto dura
+//   lane.ts        o SVG da pista: as medidas, as trilhas de animação e o desenho final
+//   statusline.ts  a saída colorida do terminal (ANSI) em pedaços com cor; o nome do modelo
+//   limits.ts      o endereço e o ritmo da consulta dos limites; a leitura da resposta
+//   weather.ts     os endereços do clima e do lugar; o código do tempo em emoji
+//   git.ts         as linhas mexidas (Edit/Write) e a detecção de commit e push
+//   tapinha.ts     o recado do clique, onde ele acerta o Clawd e a cena da reação
+//   art.ts, laptop.ts  os desenhos
 
 const mood = atom({ plugin: 'clawd', key: 'mood' } as const, 'idle' as ClawdMood)
 const status = atom({ plugin: 'clawd', key: 'status' } as const, [] as StatusSpan[][])
@@ -48,30 +48,6 @@ const compacting = atom({ plugin: 'clawd', key: 'compacting' } as const, false)
 // Quantos tapinhas acertaram o Clawd. O valor não importa: a faixa lê o número só para se redesenhar na hora.
 const taps = atom({ plugin: 'clawd', key: 'taps' } as const, 0)
 
-type SceneKind = ClawdMood | 'work' | 'compact'
-
-// Quanto tempo cada reação dura, em segundos, e quando ele cochila.
-const PARTY_S = 5
-const OOPS_S = 4
-const SLEEP_S = 10 * 60
-const SLEEP_NIGHT_S = 3 * 60 // de madrugada ele cochila mais cedo
-const FIREWORKS_S = 7
-
-// O tapinha (um clique nele): a reação dura isto; vários cliques seguidos o deixam tonto.
-const OUCH_S = 0.8
-const DIZZY_S = 2
-const TAP_COMBO_N = 4 // quatro tapinhas...
-const TAP_COMBO_MS = 3000 // ...em 3 segundos
-const TAP_KEY = 'tap' // o endereço da área de clique (hooks/tap.tsx)
-const TAP_LOG_MAX = 30
-
-// A pausa: depois de 1 hora de trabalho seguido (sem 10 minutos de folga), ele
-// se espreguiça e levanta a plaquinha; no máximo a cada 20 minutos.
-const BREAK_GAP_S = 10 * 60
-const STREAK_S = 60 * 60
-const PAUSE_S = 40
-const PAUSE_EVERY_S = 20 * 60
-
 // ---------- a statusline ----------
 
 // A statusline: por padrão ~/.claude/statusline-rgb.js (o instalador copia a do projeto pra lá);
@@ -88,117 +64,9 @@ async function statuslineScript($: EngineInterface): Promise<string> {
 }
 const STATUS_EVERY_MS = 20_000
 
-// Os limites ao vivo, do mesmo lugar que o /usage do Claude Code lê.
-const USAGE_URL = 'https://api.anthropic.com/api/oauth/usage'
-const LIMITS_EVERY_MS = 2 * 60_000
-const LIMITS_FRESH_MS = 6 * 60_000
-const LIMITS_BACKOFF_MS = [5, 10, 20].map(m => m * 60_000) // depois de "muitas consultas" (429), espera mais
-
 // Quando ele reage aos números: sua com o contexto cheio, se preocupa com o limite de 5h.
 const TIRED_AT = 80
 const WORRIED_AT = 90
-
-const BASIC = ['#000000', '#cd3131', '#0dbc79', '#e5e510', '#2472c8', '#bc3fbc', '#11a8cd', '#e5e5e5']
-const BRIGHT = ['#666666', '#f14c4c', '#23d18b', '#f5f543', '#3b8eea', '#d670d6', '#29b8db', '#ffffff']
-
-const hex = (r: number, g: number, b: number) =>
-  '#' + [r, g, b].map(v => Math.max(0, Math.min(255, v | 0)).toString(16).padStart(2, '0')).join('')
-
-function xterm(n: number): string {
-  if (n < 8) return BASIC[n]
-  if (n < 16) return BRIGHT[n - 8]
-  if (n < 232) {
-    const i = n - 16
-    const level = (v: number) => (v === 0 ? 0 : 55 + v * 40)
-    return hex(level(Math.floor(i / 36)), level(Math.floor(i / 6) % 6), level(i % 6))
-  }
-  const g = 8 + (n - 232) * 10
-  return hex(g, g, g)
-}
-
-// Traduz a saída colorida do terminal (ANSI) em pedaços com cor, linha a linha.
-function parseAnsi(text: string): StatusSpan[][] {
-  const clean = text.replace(/\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)/g, '')
-  const out: StatusSpan[][] = []
-
-  for (const raw of clean.split(/\r?\n/)) {
-    const spans: StatusSpan[] = []
-    let color: string | undefined
-    let bold = false
-    let dim = false
-    let last = 0
-
-    const push = (t: string) => {
-      const plain = t.replace(/\x1b\[[0-9;?]*[A-Za-z]/g, '').replace(/[\x00-\x08\x0b-\x1f\x7f]/g, '')
-      if (!plain) return
-      const prev = spans[spans.length - 1]
-      if (prev && prev.c === color && !!prev.b === bold && !!prev.d === dim) {
-        prev.t += plain
-        return
-      }
-      const span: StatusSpan = { t: plain }
-      if (color) span.c = color
-      if (bold) span.b = true
-      if (dim) span.d = true
-      spans.push(span)
-    }
-
-    const sgr = /\x1b\[([0-9;]*)m/g
-    for (let m = sgr.exec(raw); m; m = sgr.exec(raw)) {
-      push(raw.slice(last, m.index))
-      last = sgr.lastIndex
-      const codes = m[1] === '' ? [0] : m[1].split(';').map(Number)
-      for (let i = 0; i < codes.length; i++) {
-        const k = codes[i]
-        if (k === 0) {
-          color = undefined
-          bold = false
-          dim = false
-        } else if (k === 1) bold = true
-        else if (k === 2) dim = true
-        else if (k === 22) bold = dim = false
-        else if (k === 39) color = undefined
-        else if (k >= 30 && k <= 37) color = BASIC[k - 30]
-        else if (k >= 90 && k <= 97) color = BRIGHT[k - 90]
-        else if (k === 38 && codes[i + 1] === 2) {
-          color = hex(codes[i + 2], codes[i + 3], codes[i + 4])
-          i += 4
-        } else if (k === 38 && codes[i + 1] === 5) {
-          color = xterm(codes[i + 2])
-          i += 2
-        } else if (k === 48) i += codes[i + 1] === 2 ? 4 : 2 // fundo: a faixa já tem o dela
-      }
-    }
-    push(raw.slice(last))
-
-    if (spans.some(s => s.t.trim() !== '')) out.push(spans)
-  }
-  return out
-}
-
-// O nome do modelo como a statusline do terminal mostra: "Opus 5.5 (1M context)".
-function prettyModel(raw: string, window: number): string {
-  if (/\s/.test(raw.trim())) return raw.trim()
-  const m = /^(?:claude-)?(opus|sonnet|haiku|fable)(?:-(\d+))?(?:-(\d{1,2}))?(?:-\d+)?(\[1m\])?$/i.exec(raw.trim())
-  if (!m) return raw
-  const name = m[1][0].toUpperCase() + m[1].slice(1).toLowerCase()
-  const version = m[2] ? ` ${m[2]}${m[3] ? `.${m[3]}` : ''}` : ''
-  const big = m[4] || window >= 1_000_000 ? ' (1M context)' : ''
-  return `${name}${version}${big}`
-}
-
-type Window = { used_percentage: number; resets_at?: number }
-
-// Lê uma janela de limite em qualquer um dos formatos conhecidos.
-function windowOf(x: unknown): Window | undefined {
-  if (!x || typeof x !== 'object') return undefined
-  const o = x as Record<string, unknown>
-  const pct = typeof o.utilization === 'number' ? o.utilization : typeof o.used_percentage === 'number' ? o.used_percentage : undefined
-  if (pct === undefined) return undefined
-  const r = o.resets_at ?? o.resetsAt
-  const resets = typeof r === 'string' ? Date.parse(r) / 1000 : typeof r === 'number' ? (r > 1e12 ? r / 1000 : r) : NaN
-  return Number.isFinite(resets) ? { used_percentage: pct, resets_at: resets } : { used_percentage: pct }
-}
 
 // Variáveis do módulo: um recarregamento começa de novo, e tudo bem.
 let effort: string | undefined
@@ -387,9 +255,6 @@ const hourHere = (now: number) => new Date(now + utcOffsetS * 1000).getUTCHours(
 // os dados "current" mudam a cada 15 minutos. Chuva de verão chega em "showers".
 // Onde ele está agora: pela conexão de internet (geolocalização por IP, nível de cidade),
 // conferido a cada hora e guardado. A variável CLAWD_LOCATION="lat,lon" fixa um lugar.
-type Place = { lat: number; lon: number; city: string; at: number }
-const PLACE_EVERY_MS = 60 * 60_000
-const PLACE_SERVICES = ['https://get.geojs.io/v1/ip/geo.json', 'https://ipwho.is/']
 let place: Place | null = null
 let placeNote = 'ainda não consultado'
 
@@ -425,28 +290,6 @@ async function refreshPlace($: EngineInterface) {
     placeNote = `erro: ${String(err).slice(0, 200)}`
   }
 }
-
-const weatherUrl = (p: Place) =>
-  `https://api.open-meteo.com/v1/forecast?latitude=${p.lat}&longitude=${p.lon}&current=temperature_2m,weather_code,is_day,precipitation,rain,showers&timezone=auto`
-const WEATHER_EVERY_MS = 15 * 60_000
-const WEATHER_STALE_MS = 60 * 60_000 // leitura mais velha que isso não abre guarda-chuva
-
-// Códigos WMO do tempo para um emoji, de dia e de noite.
-function weatherEmoji(code: number, day: boolean): string {
-  if (code === 0) return day ? '☀️' : '🌙'
-  if (code === 1) return day ? '🌤️' : '🌙'
-  if (code === 2) return day ? '⛅' : '☁️'
-  if (code === 3) return '☁️'
-  if (code === 45 || code === 48) return '🌫️'
-  if (code >= 51 && code <= 57) return '🌦️'
-  if (code >= 61 && code <= 67) return '🌧️'
-  if ((code >= 71 && code <= 77) || code === 85 || code === 86) return '🌨️'
-  if (code >= 80 && code <= 82) return '🌦️'
-  if (code >= 95) return '⛈️'
-  return day ? '🌤️' : '🌙'
-}
-
-const WET = new Set([51, 53, 55, 56, 57, 61, 63, 65, 66, 67, 80, 81, 82, 95, 96, 97, 99])
 
 async function refreshWeather($: EngineInterface) {
   try {
@@ -489,68 +332,7 @@ async function refreshWeather($: EngineInterface) {
   }
 }
 
-// ---------- linhas mexidas, commits e ajudantes ----------
-
-// A regra do terminal (claude.exe, a mesma que alimenta cost.total_lines_added):
-// só Edit e Write contam, inclusive os dos ajudantes; recusados, com erro ou
-// "staged" não contam. Cada linha do trecho que começa com + ou - conta uma.
-// Um Write que cria o arquivo conta todas as linhas (quebras + 1).
-function fromPatch(patch: unknown): Lines {
-  let added = 0
-  let removed = 0
-  for (const hunk of Array.isArray(patch) ? (patch as { lines?: unknown }[]) : []) {
-    for (const line of Array.isArray(hunk.lines) ? hunk.lines : []) {
-      if (typeof line !== 'string') continue
-      if (line.startsWith('+')) added++
-      else if (line.startsWith('-')) removed++
-    }
-  }
-  return { added, removed }
-}
-
-type Ran = { deny?: string; isError?: boolean; text?: string; result?: unknown }
-
-function changedLines(tool: string, ran: Ran): Lines | null {
-  if (ran.deny !== undefined || ran.isError) return null
-  const r = (ran.result ?? {}) as { staged?: boolean; type?: string; content?: unknown; structuredPatch?: unknown }
-  if (r.staged === true) return null
-  if (tool === 'Write' && r.type === 'create') return { added: typeof r.content === 'string' && r.content ? r.content.split('\n').length : 0, removed: 0 }
-  return fromPatch(r.structuredPatch)
-}
-
-// Commit e push: o próprio Claude Code marca no resultado do Bash/PowerShell
-// (result.gitOperation) quando um aconteceu de verdade. Reservas para o que ele
-// perde: um commit que imprimiu antes de a linha falhar, e o commit quieto (-q).
-const COMMIT_LINE = /^\[(?:([\w./-]+)|detached HEAD)(?: \(root-commit\))? ([0-9a-f]{4,})\]/m
-const PUSH_LINE = /^\s*[+\-*!= ]?\s*(?:\[new branch\]|[0-9a-f]+\.\.+[0-9a-f]+)\s+\S+\s*->\s*(\S+)/m
-const gitSub = (sub: string) =>
-  new RegExp(String.raw`(?:^|[\s;&|(])git(?:\.exe)?(?:\s+-[cC]\s+(?:"[^"]*"|'[^']*'|\S+)|\s+--[^\s=]+=\S+)*\s+${sub}\b`)
-const GIT_COMMIT = gitSub('commit')
-const GIT_PUSH = gitSub('push')
-const argsOf = (re: RegExp, cmd: string) => (cmd.split(re)[1] ?? '').split(/[&|;\n]/)[0] ?? ''
-const QUIET = /(?:^|\s)(?:-q|--quiet)(?=\s|$)/
-const COMMIT_DRY = /(?:^|\s)--dry-run(?=\s|$)/ // no commit, -n quer dizer --no-verify
-const PUSH_DRY = /(?:^|\s)(?:-n|--dry-run)(?=\s|$)/ // no push, -n é --dry-run
-const NOTHING = /nothing to commit|no changes added to commit|nothing added to commit/
-
-function gitHappened(command: unknown, ran: Ran): boolean {
-  if (typeof command !== 'string' || ran.deny !== undefined) return false
-  const commitArgs = argsOf(GIT_COMMIT, command)
-  const pushArgs = argsOf(GIT_PUSH, command)
-  const wantsCommit = GIT_COMMIT.test(command) && !COMMIT_DRY.test(commitArgs)
-  const wantsPush = GIT_PUSH.test(command) && !PUSH_DRY.test(pushArgs)
-  if (!wantsCommit && !wantsPush) return false
-  if (ran.isError) {
-    const text = ran.text ?? String(ran.result ?? '')
-    return (wantsCommit && COMMIT_LINE.test(text)) || (wantsPush && PUSH_LINE.test(text))
-  }
-  const r = (ran.result ?? {}) as { gitOperation?: { commit?: unknown; push?: unknown }; stdout?: string; stderr?: string; backgroundTaskId?: string }
-  if (r.backgroundTaskId) return false // ainda rodando em segundo plano: não dá pra saber
-  if (r.gitOperation?.commit || r.gitOperation?.push) return true
-  const out = `${r.stdout ?? ''}\n${r.stderr ?? ''}`
-  if ((wantsCommit && COMMIT_LINE.test(out)) || (wantsPush && PUSH_LINE.test(out))) return true
-  return wantsCommit && QUIET.test(commitArgs) && !NOTHING.test(out)
-}
+// ---------- os ajudantes ----------
 
 // Os ajudantes rodando agora (id -> tipo) e os que acabaram de terminar, para a
 // lista do motor não ressuscitar um que ela ainda chama de "running" por um instante.
@@ -558,520 +340,7 @@ const running = new Map<string, string>()
 const ended = new Set<string>()
 const HELPERS_SYNC_MS = 2000
 
-// ---------- a pista ----------
-
-// A pista é um SVG que ocupa o espaço à direita da statusline. O app desenha o SVG
-// como imagem com no máximo 100% da largura do espaço; sem viewBox, o SVG mede em
-// pixels de verdade, então o Clawd anda em porcentagem da pista. Ele mesmo é
-// desenhado numa caixa de 34 x 23 células (1 célula = meio pixel do Clawd), a mesma
-// grade da animação oficial do laptop.
-const CELL = 2.25
-const BOX_W = 34
-const BOX_H = 23
-const LANE_W = 4000 // o app corta em 100% do espaço
-const SVG_SAFE = 125_000 // o app aceita até 131072 caracteres de SVG
-const LANE_MIN_CH = 13 // menos que isso ao lado do texto, e o Clawd vai pra linha de baixo
-const LANE_GAP_CH = 2 // o respiro entre a statusline e a pista
-// A statusline tem dois formatos: o largo chega a ~90 colunas e só cabe com a pista
-// ao lado a partir de ~107; abaixo disso vai o estreito (45), que sempre cabe.
-const WIDE_ROOM_CH = 92
-const wideFits = (cols: number) => cols - LANE_MIN_CH - LANE_GAP_CH >= WIDE_ROOM_CH
-const PARK_PX = 150 // pista mais curta que isso: ele não passeia
-const LANE_MIN_H = 62 // a caixa tem 51,75 px: o resto é folga para o pulo e a cúpula do guarda-chuva
-const LINE_PX = 18.75 // altura de uma linha de texto da faixa
-const PAD = 14 // folga entre o texto e o começo da pista
-const CH_PX = 8.5 // largura aproximada de uma coluna da faixa (só para calcular a velocidade)
-const WALK_PX = 30 // px por segundo, passeando
-const RUN_PX = 140 // px por segundo, correndo pro laptop
-const STEP_S = 0.18 // meio passo
-const WAVE_S = 1.2
-// O clique: a área invisível cobre a pista inteira; o corpo dele começa na célula 8 da caixa
-// (à esquerda ficam a caneca e a plaquinha) e o acerto ganha 2 colunas de folga de cada lado
-// (a largura exata da coluna do app pode variar um pouco da CH_PX, que é aproximada).
-const TAP_FROM = 8
-const TAP_REACH = 2
-
-// A animação oficial: tira o laptop (0-16), digita (17-19, em laço), guarda (33-42).
-const LAPTOP_INTRO = LAPTOP_SEQ.slice(0, 17)
-const LAPTOP_TYPING = LAPTOP_SEQ.slice(17, 20)
-const LAPTOP_OUTRO = LAPTOP_SEQ.slice(33, 43)
-const LAPTOP_SHOWS_AT = 9 / LAPTOP_FPS // quando o laptop já está à vista
-
-// ---------- as cenas ----------
-
-// Uma cena é uma introdução (toca uma vez) e um laço (repete), feitos de passos.
-// Em cada passo ele vai de p0 a p1 (0 = começo da pista, 1 = fim).
-type Motion = 'breathe' | 'snooze' | 'walk' | 'jump' | 'shake' | 'wobble' | 'still'
-type Pose = {
-  laptop?: readonly number[]
-  typing?: boolean
-  eyes?: Eyes
-  motion?: Motion
-  fx?: Fx
-  look?: number
-  wave?: boolean
-  body?: Body
-  sign?: boolean
-  squash?: boolean // achata e volta (o tapinha), valendo também com o laptop aberto
-}
-type Step = { d: number; p0: number; p1: number; pose: Pose }
-type Spec = { kind: SceneKind; intro: Step[]; loop: Step[]; laptopAt: number; parked?: boolean }
-
-// O que muda o visual sem mudar o tempo da cena.
-type Flags = {
-  tired: boolean
-  worried: boolean
-  morning: boolean
-  night: boolean
-  tool: Activity
-  rain: boolean
-  ultra: boolean
-}
-
-const stand = (p: number, d: number, pose: Pose = {}): Step => ({
-  d,
-  p0: p,
-  p1: p,
-  pose: { eyes: 'open', motion: 'breathe', ...pose },
-})
-
-const walk = (p0: number, p1: number, speed: number, travel: number): Step => ({
-  d: Math.max(0.4, (Math.abs(p1 - p0) * travel) / speed),
-  p0,
-  p1,
-  pose: { eyes: 'open', motion: 'walk', look: Math.sign(p1 - p0) },
-})
-
-const laptop = (p: number, frames: readonly number[], typing = false): Step => ({
-  d: frames.length / LAPTOP_FPS,
-  p0: p,
-  p1: p,
-  pose: { laptop: frames, typing },
-})
-
-const span = (steps: Step[]) => steps.reduce((sum, s) => sum + s.d, 0)
-
-// Três paradas sorteadas pela pista, voltando sempre pro ponto de partida.
-function wander(home: number, travel: number): Step[] {
-  const stops: number[] = []
-  let prev = home
-  for (let i = 0; i < 3; i++) {
-    let p = Math.random()
-    for (let tries = 0; tries < 12 && Math.abs(p - prev) < 0.25; tries++) p = Math.random()
-    p = Math.round(p * 100) / 100
-    stops.push(p)
-    prev = p
-  }
-  const steps: Step[] = [stand(home, 3 + Math.random() * 2)]
-  let at = home
-  for (const p of stops) {
-    steps.push(walk(at, p, WALK_PX, travel), stand(p, 3 + Math.random() * 2.5))
-    at = p
-  }
-  steps.push(walk(at, home, WALK_PX, travel))
-  return steps
-}
-
-function buildScene(kind: SceneKind, from: number, laptopOpen: boolean, travel: number, parked: boolean): Spec {
-  const spec = buildSceneSteps(kind, from, laptopOpen, travel, parked)
-  return parked ? { ...spec, parked } : spec
-}
-
-function buildSceneSteps(kind: SceneKind, from: number, laptopOpen: boolean, travel: number, parked: boolean): Spec {
-  const outro = laptopOpen ? [laptop(from, LAPTOP_OUTRO)] : []
-  switch (kind) {
-    case 'work': {
-      // ele acena pra você, corre pro fim da pista e abre o laptop
-      const hello = stand(from, WAVE_S, { eyes: 'happy', wave: true, motion: 'still', look: 0 })
-      const run = from < 0.98 ? [walk(from, 1, RUN_PX, travel)] : []
-      return {
-        kind,
-        intro: [hello, ...run, laptop(1, LAPTOP_INTRO)],
-        loop: [laptop(1, LAPTOP_TYPING, true)],
-        laptopAt: WAVE_S + span(run) + LAPTOP_SHOWS_AT,
-      }
-    }
-    case 'party':
-      return { kind, intro: outro, loop: [stand(from, 1, { eyes: 'happy', motion: 'jump', fx: 'confetti', look: 0 })], laptopAt: Infinity }
-    case 'oops':
-      return {
-        kind,
-        intro: outro,
-        loop: [stand(from, 1.2, { eyes: 'wide', motion: 'shake', fx: 'sweat', look: 0 }), stand(from, 1.6, { eyes: 'wide', motion: 'still', fx: 'sweat', look: 0 })],
-        laptopAt: Infinity,
-      }
-    case 'sleep':
-      return { kind, intro: [], loop: [stand(from, 6, { eyes: 'closed', motion: 'snooze', fx: 'zzz', look: 0 })], laptopAt: Infinity }
-    case 'compact': {
-      // compactando o contexto: corre pro canto e opera a prensa
-      const run = from < 0.98 ? [walk(from, 1, RUN_PX, travel)] : []
-      return { kind, intro: [...outro, ...run], loop: [stand(1, 1.2, { fx: 'press', look: -1, motion: 'still' })], laptopAt: Infinity }
-    }
-    case 'pause':
-      // espreguiça e levanta a plaquinha "pausa?"
-      return {
-        kind,
-        intro: [...outro, stand(from, 2.4, { body: 'stretch', eyes: 'closed', motion: 'still', look: 0 })],
-        loop: [stand(from, 8, { sign: true, look: 0 })],
-        laptopAt: Infinity,
-      }
-    default: {
-      // pista curta: ele volta pro canto e fica ali (espia, pisca, dança), sem passear
-      if (parked) {
-        const back = from < 0.98 ? [walk(from, 1, WALK_PX, travel)] : []
-        return { kind, intro: [...outro, ...back], loop: [stand(1, 6)], laptopAt: Infinity }
-      }
-      return { kind, intro: outro, loop: wander(from, travel), laptopAt: Infinity }
-    }
-  }
-}
-
-// Onde ele está, `t` segundos depois do começo da cena.
-function posAt(spec: Spec, t: number): number {
-  const introDur = span(spec.intro)
-  const loopDur = span(spec.loop)
-  let steps = spec.intro
-  let at = t
-  if (t >= introDur && loopDur > 0) {
-    steps = spec.loop
-    at = (t - introDur) % loopDur
-  }
-  for (const s of steps) {
-    if (at <= s.d) return s.p0 + (s.p1 - s.p0) * (s.d > 0 ? at / s.d : 1)
-    at -= s.d
-  }
-  const end = steps[steps.length - 1]
-  return end ? end.p1 : 1
-}
-
-// ---------- de cenas para animação SVG ----------
-
-type Pt = [number, string]
-type Tracks = {
-  dur: number
-  pos: [number, number][]
-  vis: Map<string, Pt[]>
-  legsA: Pt[]
-  legsB: Pt[]
-  bob: Pt[]
-  lift: Pt[]
-  look: Pt[]
-  squash: Pt[]
-}
-
-const JUMP = [0, -2, -4, -5, -5.5, -5, -4, -2, 0]
-const JUMP_S = 0.5
-// O tapinha: achata (mais largo e mais baixo), estica um pouco e acomoda. Pontos (tempo, escala).
-const SQUASH: Pt[] = [[0, '1.22 0.76'], [0.08, '0.94 1.1'], [0.18, '1.05 0.96'], [0.3, '1 1']]
-const SQUASH_X = 20 // o eixo do achatamento: o meio da caixa, no chão dela
-
-function compile(spec: Spec, part: Step[], flags: Flags): Tracks {
-  const tr: Tracks = {
-    dur: span(part),
-    pos: [],
-    vis: new Map(),
-    legsA: [[0, '0 0']],
-    legsB: [[0, '0 0']],
-    bob: [[0, '0 0']],
-    lift: [[0, '0 0']],
-    look: [[0, '0 0']],
-    squash: [[0, '1 1']],
-  }
-  const vis = (key: string, t: number, on: boolean) => {
-    let pts = tr.vis.get(key)
-    if (!pts) tr.vis.set(key, (pts = [[0, 'hidden']]))
-    pts.push([t, on ? 'visible' : 'hidden'])
-  }
-  const showBody = (t: number, body: Body) => {
-    for (const k of BODY_KINDS) vis(`body:${k}`, t, k === body)
-  }
-
-  let shown: number | null = null
-  const showFrame = (t: number, id: number | null) => {
-    if (shown === id) return
-    if (shown !== null) vis(`frame:${shown}`, t, false)
-    if (id !== null) vis(`frame:${id}`, t, true)
-    shown = id
-  }
-
-  let t0 = 0
-  for (const s of part) {
-    const t1 = t0 + s.d
-    tr.pos.push([t0, s.p0], [t1, s.p1])
-    const pose = s.pose
-    const front = !pose.laptop
-    const motion = pose.motion ?? 'still'
-
-    // enfeites que valem para qualquer pose
-    vis('under:aura', t0, flags.ultra)
-    vis('fx:press', t0, pose.fx === 'press')
-    for (const k of FX_KINDS) {
-      const on =
-        k === pose.fx ||
-        (k === 'sweat' && flags.tired) ||
-        (k === 'bang' && flags.worried && !flags.rain && !pose.wave && pose.body !== 'stretch' && spec.kind !== 'sleep')
-      vis(`fx:${k}`, t0, on)
-    }
-    for (const k of TYPING_PROP_KINDS) {
-      const on =
-        !!pose.typing &&
-        ((k === 'glasses' && flags.tool === 'read') ||
-          (k === 'magnifier' && flags.tool === 'web') ||
-          (k === 'hammer' && flags.tool === 'edit') ||
-          (k === 'browsT' && flags.worried) ||
-          (k === 'umbrellaT' && flags.rain))
-      vis(`typing:${k}`, t0, on)
-    }
-
-    // o tapinha: achata e volta, em qualquer pose (até com o laptop aberto)
-    if (pose.squash) for (const [dt, v] of SQUASH) tr.squash.push([t0 + dt, v])
-    else tr.squash.push([t0, '1 1'])
-
-    if (!front) {
-      // em SVG, um filho "visible" aparece mesmo dentro de um grupo escondido: por isso
-      // cada camada da pose de frente é escondida junto, senão ela fica por cima do laptop
-      vis('front', t0, false)
-      for (const k of BODY_KINDS) vis(`body:${k}`, t0, false)
-      for (const k of EYE_KINDS) vis(`eyes:${k}`, t0, false)
-      for (const k of FRONT_PROP_KINDS) vis(`prop:${k}`, t0, false)
-      pose.laptop!.forEach((id, i) => showFrame(t0 + i / LAPTOP_FPS, id))
-      t0 = t1
-      continue
-    }
-
-    showFrame(t0, null)
-    vis('front', t0, true)
-    const eyes: Eyes = pose.eyes ?? 'open'
-    for (const k of EYE_KINDS) vis(`eyes:${k}`, t0, k === eyes)
-    vis('prop:brows', t0, flags.worried)
-    vis('prop:mug', t0, flags.morning && spec.kind === 'idle')
-    // chovendo: o guarda-chuva fica preso na cabeça (no pulo de alegria ele some)
-    vis('prop:umbrella', t0, flags.rain && motion !== 'jump')
-    vis('prop:sign', t0, !!pose.sign)
-    for (const k of ['legsA', 'legsB', 'bob', 'lift'] as const) tr[k].push([t0, '0 0'])
-
-    // o corpo: acenando, ou parado numa pose
-    if (pose.wave) {
-      for (let k = 0, t = t0; t < t1 - 0.01; k++, t += 0.2) showBody(t, k % 2 === 0 ? 'waveA' : 'waveB')
-    } else showBody(t0, pose.body ?? 'body')
-
-    if (pose.look !== undefined) tr.look.push([t0, `${pose.look} 0`])
-    else if (motion === 'breathe' && s.d >= 2.5) {
-      // parado, ele espia em volta
-      tr.look.push([t0, '0 0'], [t0 + s.d * 0.35, '1 0'], [t0 + s.d * 0.5, '0 0'], [t0 + s.d * 0.7, '-1 0'], [t0 + s.d * 0.85, '0 0'])
-    } else tr.look.push([t0, '0 0'])
-
-    // de madrugada, parado, ele boceja
-    if (flags.night && motion === 'breathe' && s.d >= 3) {
-      const a = t0 + s.d * 0.4
-      const b = t0 + s.d * 0.65
-      vis(`eyes:${eyes}`, a, false)
-      vis('eyes:closed', a, true)
-      vis('prop:mouth', a, true)
-      vis('eyes:closed', b, eyes === 'closed')
-      vis(`eyes:${eyes}`, b, true)
-      vis('prop:mouth', b, false)
-    } else vis('prop:mouth', t0, false)
-
-    if (motion === 'walk') {
-      for (let k = 0, t = t0; t < t1 - 0.01; k++, t += STEP_S) {
-        tr.legsA.push([t, k % 2 === 0 ? '0 -1' : '0 0'])
-        tr.legsB.push([t, k % 2 === 0 ? '0 0' : '0 -1'])
-        tr.bob.push([t, k % 2 === 0 ? '0 -1' : '0 0'])
-      }
-    } else if (motion === 'breathe' || motion === 'snooze') {
-      const half = motion === 'snooze' ? 1.5 : 1
-      for (let k = 0, t = t0; t < t1 - 0.01; k++, t += half) tr.bob.push([t, k % 2 === 0 ? '0 0' : '0 -1'])
-    } else if (motion === 'jump') {
-      for (let t = t0; t < t1 - 0.01; t += JUMP_S) {
-        JUMP.forEach((dy, i) => tr.lift.push([t + (i * JUMP_S) / JUMP.length, `0 ${dy}`]))
-      }
-    } else if (motion === 'shake') {
-      for (let k = 0, t = t0; t < Math.min(t1, t0 + 0.6) - 0.01; k++, t += 0.05) tr.lift.push([t, k % 2 === 0 ? '-0.5 0' : '0.5 0'])
-      tr.lift.push([Math.min(t1, t0 + 0.6), '0 0'])
-    } else if (motion === 'wobble') {
-      // tonto: balança de um lado pro outro o passo inteiro
-      for (let k = 0, t = t0; t < t1 - 0.01; k++, t += 0.12) tr.lift.push([t, k % 2 === 0 ? '-1 0' : '1 0'])
-      tr.lift.push([t1, '0 0'])
-    }
-    t0 = t1
-  }
-  return tr
-}
-
-const round = (v: number) => Math.round(v * 100000) / 100000
-
-// Pontos (tempo, valor) para values/keyTimes de um passo a passo (discrete).
-function discrete(points: Pt[], dur: number): { values: string; keyTimes: string } | null {
-  if (dur <= 0) return null
-  const out: Pt[] = []
-  for (const [t, v] of points) {
-    const k = round(t / dur)
-    if (k >= 1) continue
-    if (out.length && out[out.length - 1][0] === k) {
-      out[out.length - 1] = [k, v]
-      continue
-    }
-    out.push([k, v])
-  }
-  if (!out.length) return null
-  if (out[0][0] !== 0) out.unshift([0, out[0][1]])
-  const merged = out.filter((p, i) => i === 0 || p[1] !== out[i - 1][1])
-  return { values: merged.map(p => p[1]).join(';'), keyTimes: merged.map(p => p[0]).join(';') }
-}
-
-// Pontos (tempo, posição) para um movimento contínuo (linear).
-function linear(points: [number, number][], dur: number, fmt: (p: number) => string): { values: string; keyTimes: string } | null {
-  if (dur <= 0 || !points.length) return null
-  const out: [number, number][] = []
-  for (const [t, p] of points) {
-    const k = Math.min(1, round(t / dur))
-    if (out.length && out[out.length - 1][0] === k) {
-      out[out.length - 1] = [k, p]
-      continue
-    }
-    out.push([k, p])
-  }
-  if (out[0][0] !== 0) out.unshift([0, out[0][1]])
-  if (out[out.length - 1][0] !== 1) out.push([1, out[out.length - 1][1]])
-  return { values: out.map(p => fmt(p[1])).join(';'), keyTimes: out.map(p => p[0]).join(';') }
-}
-
-// As duas animações de um elemento: a introdução (uma vez, congelando no fim) e o
-// laço (para sempre). O começo é puxado para trás pelo tempo que a cena já rodou,
-// então um redesenho continua de onde estava em vez de recomeçar.
-function both(
-  tag: 'animate' | 'animateTransform',
-  attr: string,
-  intro: { values: string; keyTimes: string } | null,
-  loop: { values: string; keyTimes: string } | null,
-  introDur: number,
-  loopDur: number,
-  elapsed: number,
-  calc: 'discrete' | 'linear',
-  kind: 'translate' | 'scale' = 'translate',
-): string {
-  const type = tag === 'animateTransform' ? ` type="${kind}"` : ''
-  const one = (a: { values: string; keyTimes: string }, dur: number, begin: number, repeat: string) =>
-    `<${tag} attributeName="${attr}"${type} values="${a.values}" keyTimes="${a.keyTimes}" dur="${round(dur)}s" begin="${round(begin)}s" calcMode="${calc}" ${repeat}/>`
-  return (
-    (intro && introDur > 0 ? one(intro, introDur, -elapsed, 'fill="freeze"') : '') +
-    (loop && loopDur > 0 ? one(loop, loopDur, introDur - elapsed, LOOP) : '')
-  )
-}
-
-// fireworks: segundos desde o commit (os fogos começam do zero), ou null sem fogos
-// reach: quantos px ele anda da ponta direita até a ponta esquerda (estimativa conservadora)
-type Lane = { helpers: number; cap: number; fireworks: number | null; shift: { dx: number; ago: number } | null; reach: number }
-
-// As animações miúdas dos desenhos (piscar, chuva, aura, fumaça, mini-Clawds) recebem a
-// fase do relógio: um redesenho cria uma imagem nova, e sem isso todas voltariam ao começo.
-function phased(art: string, wall: number): string {
-  const phase = wall % 3600
-  return art.replace(/<(animate|animateTransform)\b([^>]*?)(\/?)>/g, (_m, tag: string, attrs: string, slash: string) => {
-    const b = /\sbegin="(-?[\d.]+)s"/.exec(attrs)
-    const begin = round((b ? Number(b[1]) : 0) - phase)
-    return `<${tag}${b ? attrs.replace(b[0], ` begin="${begin}s"`) : `${attrs} begin="${begin}s"`}${slash}>`
-  })
-}
-
-function laneSvg(spec: Spec, elapsed: number, flags: Flags, height: number, lane: Lane, wall: number): string {
-  const I = compile(spec, spec.intro, flags)
-  const L = compile(spec, spec.loop, flags)
-  const used = (key: string) => [I.vis.get(key), L.vis.get(key)].some(pts => pts?.some(p => p[1] === 'visible'))
-
-  const vis = (key: string) =>
-    both('animate', 'visibility', discrete(I.vis.get(key) ?? [[0, 'hidden']], I.dur), discrete(L.vis.get(key) ?? [[0, 'hidden']], L.dur), I.dur, L.dur, elapsed, 'discrete')
-  const move = (pick: (t: Tracks) => Pt[]) =>
-    both('animateTransform', 'transform', discrete(pick(I), I.dur), discrete(pick(L), L.dur), I.dur, L.dur, elapsed, 'discrete')
-  const glide = (attr: string, tag: 'animate' | 'animateTransform', fmt: (p: number) => string) =>
-    both(tag, attr, linear(I.pos, I.dur, fmt), linear(L.pos, L.dur, fmt), I.dur, L.dur, elapsed, 'linear')
-  // O valor de cada trilha agora (no instante `elapsed`). Ele vai também como valor fixo do
-  // elemento: o app recria a imagem a cada redesenho e pode mostrar um quadro antes de as
-  // animações começarem; com isso esse quadro já é o certo (sem piscar vazio, sem cortar).
-  const nowOf = (pts: (t: Tracks) => Pt[] | undefined, fallback: string) => {
-    const inIntro = elapsed < I.dur || L.dur <= 0
-    const t = inIntro ? elapsed : (elapsed - I.dur) % L.dur
-    let v = fallback
-    for (const [at, val] of pts(inIntro ? I : L) ?? []) if (at <= t + 1e-6) v = val
-    return v
-  }
-  const visNow = (key: string) => nowOf(t => t.vis.get(key), 'hidden')
-  const moveNow = (pick: (t: Tracks) => Pt[]) => nowOf(pick, '0 0')
-  const layer = (key: string, art: string) => (used(key) ? `<g visibility="${visNow(key)}">${vis(key)}${art}</g>` : '')
-
-  const frameIds = [...new Set([...spec.intro, ...spec.loop].flatMap(s => s.pose.laptop ?? []))]
-  const laptopFrames = frameIds
-    .map(id => layer(`frame:${id}`, LAPTOP_FRAMES[id].map((d, c) => (d ? `<path fill="${LAPTOP_COLORS[c]}" d="${d}"/>` : '')).join('')))
-    .join('')
-
-  const front = used('front')
-    ? `<g visibility="${visNow('front')}">${vis('front')}<g transform="translate(${moveNow(t => t.lift)})">${move(t => t.lift)}` +
-      `<g transform="translate(${moveNow(t => t.legsA)})">${move(t => t.legsA)}${legs([14, 24])}</g>` +
-      `<g transform="translate(${moveNow(t => t.legsB)})">${move(t => t.legsB)}${legs([18, 28])}</g>` +
-      `<g transform="translate(${moveNow(t => t.bob)})">${move(t => t.bob)}` +
-      BODY_KINDS.map(k => layer(`body:${k}`, BODIES[k])).join('') +
-      FRONT_PROP_KINDS.map(k => layer(`prop:${k}`, phased(FRONT_PROPS[k], wall))).join('') +
-      `<g transform="translate(${moveNow(t => t.look)})">${move(t => t.look)}${EYE_KINDS.map(k => layer(`eyes:${k}`, phased(EYES[k], wall))).join('')}</g>` +
-      `</g></g></g>`
-    : ''
-
-  const typing = TYPING_PROP_KINDS.map(k => layer(`typing:${k}`, phased(TYPING_PROPS[k], wall))).join('')
-  // o confete cai do alto quando a festa começa, e a estrela do tapinha estoura quando ele leva o
-  // tapinha: os dois contam do começo da cena; o resto segue o relógio
-  const fx =
-    FX_KINDS.map(k => layer(`fx:${k}`, phased(FX[k], k === 'confetti' || k === 'pow' ? elapsed : wall))).join('') + layer('fx:press', phased(PRESS, wall))
-  // o achatamento do tapinha envolve o Clawd inteiro (corpo, laptop e acessórios), pelo chão da caixa
-  const squashed = [...spec.intro, ...spec.loop].some(s => s.pose.squash)
-  const squashAnim = squashed
-    ? both('animateTransform', 'transform', discrete(I.squash, I.dur), discrete(L.squash, L.dur), I.dur, L.dur, elapsed, 'discrete', 'scale')
-    : ''
-  const aura = layer('under:aura', phased(ULTRA_AURA, wall))
-
-  // O Clawd anda em % da imagem inteira (como a chuva), mais uma volta em células: ele vai de
-  // PAD px depois do texto até o fim da pista, sem passar do começo nem do fim. Sem <svg>
-  // de trilha no meio: na troca de imagem o app às vezes mede esse <svg> interno com largura
-  // zero por um quadro, e o Clawd aparecia cortado na beira esquerda. Com ajudantes, o fim
-  // recua a largura da baia deles: o Clawd nunca entra nela.
-  // +1: o braço do aceno e o balanço da dança passam um pouco da caixa
-  // o canto direito da caixa encosta no fim da pista (ou na baia dos ajudantes); p = 0 fica reach px à esquerda
-  const right = BOX_W + 1 + helpersZone(lane.helpers, lane.cap)
-  const reachC = lane.reach / CELL
-  const at = (p: number) => `${round(-right - (1 - p) * reachC)} 0`
-  // quando a baia dos ajudantes muda de tamanho, ele desliza até o lugar novo em vez de pular
-  const slide = lane.shift
-    ? `<animateTransform attributeName="transform" type="translate" values="${round(lane.shift.dx)} 0;0 0" dur="0.6s" begin="${round(-lane.shift.ago)}s" fill="freeze"/>`
-    : ''
-  const top = round(height - BOX_H * CELL)
-  const p0 = posAt(spec, elapsed)
-  return (
-    `<svg xmlns="http://www.w3.org/2000/svg" width="100%" height="100%" shape-rendering="crispEdges">` +
-    (flags.ultra ? phased(ultraLayer(height), wall) : '') +
-    (flags.rain ? phased(rainLayer(height), wall) : '') +
-    phased(helpersLayer(lane.helpers, lane.cap, BOX_W, BOX_H, CELL, height), wall) +
-    // a imagem já nasce com o Clawd onde ele está agora: se o app mostrar um quadro antes de as
-    // animações começarem (ele recria a imagem a cada redesenho, como no tapinha), as duas partes
-    // da posição (a % da pista e a volta em células) continuam juntas e ele não aparece cortado
-    // o desenho do Clawd fica guardado em <defs> (em células) e aparece por um <use>, que anda em %
-    // da imagem como a chuva: um <svg> interno, no quadro em que o app troca a imagem, às vezes
-    // perde a posição e o Clawd aparecia cortado no começo da pista
-    `<defs><g id="clawd-sprite"><g transform="scale(${CELL})">` +
-    `<g transform="translate(${at(p0)})">${glide('transform', 'animateTransform', at)}<g>${slide}` +
-    aura +
-    (squashed ? `<g transform="translate(${SQUASH_X} ${BOX_H})"><g transform="scale(${nowOf(t => t.squash, '1 1')})">${squashAnim}<g transform="translate(${-SQUASH_X} ${-BOX_H})">` : '') +
-    laptopFrames +
-    front +
-    typing +
-    (squashed ? `</g></g></g>` : '') +
-    fx +
-    `</g></g></g></g></defs>` +
-    // preso no canto direito por uma % FIXA (como a chuva): % animada sai zero no primeiro quadro de
-    // cada imagem nova, e era isso que jogava o Clawd cortado no começo da pista
-    `<use href="#clawd-sprite" x="100%" y="${top}"/>` +
-    (lane.fireworks !== null ? phased(fireworksLayer(height), lane.fireworks) : '') +
-    `</svg>`
-  )
-}
+// ---------- a cena atual ----------
 
 // A cena atual. Quando o humor muda, a cena nova começa de onde ele estava.
 let scene: { startedAt: number; spec: Spec } | null = null
@@ -1086,24 +355,6 @@ function sceneFor(kind: SceneKind, now: number, travel: number, parked: boolean)
   sceneDirty = true // o próximo tique guarda (quem desenha não pode gravar estado)
   return scene
 }
-
-const ALT: Record<SceneKind, string> = {
-  idle: 'Clawd passeando',
-  work: 'Clawd digitando no laptop',
-  party: 'Clawd comemorando',
-  oops: 'Clawd assustado com um erro',
-  sleep: 'Clawd dormindo',
-  pause: 'Clawd sugerindo uma pausa',
-  compact: 'Clawd compactando o contexto',
-}
-
-function activityFor(tool: string): Activity {
-  if (/^(Read|Glob|Grep|LS|NotebookRead)$/.test(tool)) return 'read'
-  if (/^(WebSearch|WebFetch)$/.test(tool) || /Browser|chrome/i.test(tool)) return 'web'
-  if (/^(Edit|Write|MultiEdit|NotebookEdit)$/.test(tool)) return 'edit'
-  return ''
-}
-
 
 // Logo do Claude Code em blocos, para o terminal (que não desenha SVG e já tem statusline).
 const TERMINAL_ART = [' ▐▛███▜▌ ', '▝▜█████▛▘', '  ▘▘ ▝▝  ']
@@ -1120,49 +371,6 @@ let tapTimes: number[] = [] // os tapinhas recentes, para o "tonto"
 let lastTapAt = -Infinity // depois de um tapinha ele fica acordado um tempo
 // Diagnóstico: os últimos cliques que chegaram (e se acertaram), guardados em $.store.
 const tapLog: Record<string, unknown>[] = []
-
-// type: "down" é o clique de verdade; "boot" (a área ganhou tamanho) e "enter" (o mouse entrou)
-// só servem de diagnóstico: ficam no registro e mais nada.
-type Tap = { type: string; x: number; y: number; cols: number; rows: number }
-
-// O recado vem de código: confere antes de usar.
-function parseTap(data: unknown): Tap | null {
-  if (!data || typeof data !== 'object') return null
-  const { type, x, y, cols, rows } = data as Record<string, unknown>
-  if (typeof x !== 'number' || typeof y !== 'number' || typeof cols !== 'number' || typeof rows !== 'number') return null
-  if (![x, y, cols, rows].every(Number.isFinite)) return null
-  return { type: type === 'boot' || type === 'enter' ? type : 'down', x, y, cols, rows }
-}
-
-// Onde o corpo dele está na pista, em colunas a partir da esquerda (de ... até), para comparar com o
-// clique. É a conta do desenho: a caixa começa PAD px depois do texto e anda p * (largura - PAD - caixa).
-function clawdSpan(p: number, cols: number, zone: number, reach: number): [number, number] {
-  const left = cols - ((BOX_W + 1 + zone) * CELL + (1 - p) * reach) / CH_PX
-  return [left + (TAP_FROM * CELL) / CH_PX - TAP_REACH, left + (BOX_W * CELL) / CH_PX + TAP_REACH]
-}
-
-// Quadros de digitação repetidos, para ele continuar digitando enquanto reage.
-const typingFrames = (n: number) => Array.from({ length: n }, (_, i) => LAPTOP_TYPING[i % LAPTOP_TYPING.length] ?? 0)
-
-// A cena logo depois de um tapinha: a de agora, continuada de onde ele está, com a reação na
-// frente. Com o laptop aberto ele segue digitando (só o efeito aparece); dormindo, o tapinha o acorda.
-function tapScene(prev: { startedAt: number; spec: Spec }, now: number, travel: number, parked: boolean, dizzy: boolean) {
-  const from = posAt(prev.spec, (now - prev.startedAt) / 1000)
-  const effect: Pose = dizzy ? { fx: 'stars' } : { fx: 'pow', squash: true }
-  if (prev.spec.kind === 'work' && (now - prev.startedAt) / 1000 >= prev.spec.laptopAt) {
-    const frames = typingFrames(Math.round((dizzy ? DIZZY_S : OUCH_S) * LAPTOP_FPS))
-    const hit: Step = { ...laptop(from, frames, true), pose: { laptop: frames, typing: true, ...effect } }
-    return { startedAt: now, spec: { kind: 'work' as SceneKind, intro: [hit], loop: [laptop(from, LAPTOP_TYPING, true)], laptopAt: 0 } }
-  }
-  const kind: SceneKind = prev.spec.kind === 'sleep' ? 'idle' : prev.spec.kind
-  const base = buildScene(kind, from, false, travel, parked)
-  const react = dizzy
-    ? stand(from, DIZZY_S, { eyes: 'dizzy', motion: 'wobble', look: 0, ...effect })
-    : stand(from, OUCH_S, { eyes: 'ouch', motion: 'still', look: 0, ...effect })
-  // a plaquinha de pausa já está de pé: sem espreguiçar de novo
-  const intro = kind === 'pause' ? [react] : [react, ...base.intro]
-  return { startedAt: now, spec: { ...base, intro, laptopAt: base.laptopAt + react.d } }
-}
 
 // Um clique chegou da área invisível: se pegou o Clawd, ele reage.
 async function onTap($: EngineInterface, tap: Tap) {
@@ -1318,9 +526,6 @@ async function addLines($: EngineInterface, delta: Lines) {
   }
   statusDirty = true
 }
-
-const isLines = (v: unknown): v is Lines =>
-  !!v && typeof (v as Lines).added === 'number' && typeof (v as Lines).removed === 'number'
 
 // Um passo do relógio, uma vez por segundo.
 async function stepClock($: EngineInterface) {

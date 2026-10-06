@@ -149,7 +149,14 @@ acima do prompt, porque o terminal não desenha as animações. Nos comandos aut
 
 ```
 clawd/                  o mod (plugin de function hooks)
-  hooks/register.tsx    o comportamento: cenas, statusline, clima, limites, ajudantes...
+  hooks/register.tsx    o módulo principal: os ganchos, o estado e tudo que usa o $
+  hooks/scenes.ts       as cenas: o que ele faz em cada humor, passo a passo
+  hooks/lane.ts         o SVG da pista: medidas, animações e o desenho final
+  hooks/statusline.ts   as cores do terminal (ANSI) e o nome do modelo
+  hooks/limits.ts       a consulta dos limites: endereço, ritmo, leitura
+  hooks/weather.ts      o clima: endereços e o código do tempo em emoji
+  hooks/git.ts          as linhas mexidas e a detecção de commit e push
+  hooks/tapinha.ts      o tapinha: onde o clique acerta e a cena da reação
   hooks/art.ts          os desenhos em SVG (corpo, olhos, acessórios, efeitos)
   hooks/laptop.ts       os quadros do laptop (gerado por tools/laptop.py)
   hooks/tap.tsx         a área invisível que recebe o tapinha
