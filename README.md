@@ -62,7 +62,7 @@ exactly what you see in the app.
 | <img src="docs/sheet/tired.svg" width="420"> | **Sweating** | The context is above 80%. |
 | <img src="docs/sheet/worried.svg" width="420"> | **Worried** (eyebrows + "!" bubble) | The 5-hour limit is above 90%. |
 | <img src="docs/sheet/pause.svg" width="420"> | **"pausa?"** (break?) | One hour of non-stop work: he stretches and suggests a break. |
-| <img src="docs/sheet/ask.svg" width="420"> | **Calling you** (waving + "?" bubble) | Claude is waiting for your permission: he puts the laptop away and waves until you answer (or 10 minutes pass). |
+| <img src="docs/sheet/ask.svg" width="420"> | **Calling you** (waving + "?" bubble) | Claude is waiting for your permission: he puts the laptop away and waves until the approved tool finishes (or 10 minutes pass). The app gives no "answered" signal, so after you approve, a long command keeps him waving until it ends. |
 
 ### Time and weather
 
@@ -137,7 +137,7 @@ More variables are coming soon. Each row below is one variable, so adding one is
 | `CLAWD_STATUSLINE` | Uses another statusline script instead of `~/.claude/statusline-rgb.js`. |
 | `CLAWD_NODE` | Full path of the Node executable that runs the statusline, e.g. `"C:/Program Files/nodejs/node.exe"`. Without it, the mod tries `node` from the PATH, then (on Windows) whatever `where node` finds, then the usual Mac/Linux paths. |
 | `CLAWD_DEBUG` | Any value turns it on: saves a log of your clicks in `~/.claude/plugins/store/clawd_inline-*.json`, to help report problems. |
-| `CLAWD_WEATHER` | `off` (or `0`, `false`) turns the weather off: no IP lookup and no Open-Meteo request. The statusline shows no weather, and Clawd never opens the umbrella or makes it rain on the lane. |
+| `CLAWD_WEATHER` | `off` (or `0`, `false`) turns the weather off: no IP lookup and no Open-Meteo request. The statusline shows no weather, and Clawd never opens the umbrella or makes it rain on the lane. The local time and date (night sky, morning coffee, hats, birthday) then come from your system clock and time zone instead of Open-Meteo's. |
 | `CLAWD_LIMITS` | `off` (or `0`, `false`) turns off the api.anthropic.com request. The statusline keeps only what the app itself reports with each reply, and Clawd does not get "worried" about the limit. |
 
 If the band is narrow, the statusline switches to the compact format. To force compact
@@ -240,7 +240,7 @@ o que aparece no app.
 | <img src="docs/sheet/tired.svg" width="420"> | **Suando** | O contexto passou de 80%. |
 | <img src="docs/sheet/worried.svg" width="420"> | **Preocupado** (sobrancelhas + balão "!") | O limite de 5 horas passou de 90%. |
 | <img src="docs/sheet/pause.svg" width="420"> | **"pausa?"** | Uma hora de trabalho sem parar: ele se espreguiça e sugere uma pausa. |
-| <img src="docs/sheet/ask.svg" width="420"> | **Chamando você** (acenando + balão "?") | O Claude está esperando a sua permissão: ele guarda o laptop e acena até você responder (ou até passarem 10 minutos). |
+| <img src="docs/sheet/ask.svg" width="420"> | **Chamando você** (acenando + balão "?") | O Claude está esperando a sua permissão: ele guarda o laptop e acena até a ferramenta aprovada terminar (ou até passarem 10 minutos). O app não avisa que você respondeu, então depois do seu "sim" um comando demorado mantém ele acenando até acabar. |
 
 ### Hora e clima
 
@@ -315,7 +315,7 @@ Mais variáveis chegam em breve. Cada linha da tabela é uma variável, então a
 | `CLAWD_STATUSLINE` | Usa outro script de statusline no lugar de `~/.claude/statusline-rgb.js`. |
 | `CLAWD_NODE` | Caminho completo do executável do Node que roda a statusline, por exemplo `"C:/Program Files/nodejs/node.exe"`. Sem ela, o mod tenta o `node` do PATH, depois (no Windows) o que o `where node` achar, depois os caminhos comuns do Mac/Linux. |
 | `CLAWD_DEBUG` | Qualquer valor liga: grava um registro dos cliques em `~/.claude/plugins/store/clawd_inline-*.json`, para ajudar a relatar problemas. |
-| `CLAWD_WEATHER` | `off` (ou `0`, `false`) desliga o clima: nenhuma consulta de IP nem ao Open-Meteo. A statusline fica sem o clima e o Clawd nunca abre o guarda-chuva nem faz chover na pista. |
+| `CLAWD_WEATHER` | `off` (ou `0`, `false`) desliga o clima: nenhuma consulta de IP nem ao Open-Meteo. A statusline fica sem o clima e o Clawd nunca abre o guarda-chuva nem faz chover na pista. A hora e a data locais (céu da madrugada, cafezinho, chapéus, aniversário) passam a vir do relógio e do fuso do seu sistema, e não do Open-Meteo. |
 | `CLAWD_LIMITS` | `off` (ou `0`, `false`) desliga a consulta a api.anthropic.com. A statusline fica só com o que o próprio app informa a cada resposta, e o Clawd não fica "preocupado" por causa do limite. |
 
 Se a faixa estiver estreita, a statusline usa o formato compacto. Para forçar o compacto

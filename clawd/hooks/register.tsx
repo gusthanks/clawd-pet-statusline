@@ -348,12 +348,14 @@ async function noteEffort($: EngineInterface, level: string | undefined) {
 }
 
 // A hora do lugar onde ele está: o fuso vem junto com a previsão do tempo (UTC-3 até lá).
-let utcOffsetS = -3 * 3600
-const hourHere = (now: number) => new Date(now + utcOffsetS * 1000).getUTCHours()
+// O fuso: o do Open-Meteo quando chega; sem ele (CLAWD_WEATHER=off ou sem resposta), o do sistema.
+let utcOffsetS: number | null = null
+const offsetAt = (now: number) => utcOffsetS ?? -new Date(now).getTimezoneOffset() * 60
+const hourHere = (now: number) => new Date(now + offsetAt(now) * 1000).getUTCHours()
 // O aniversário (CLAWD_BIRTHDAY="DD-MM"), lido no session.start; e o chapéu do dia pela data local.
 let birthday: Birthday | null = null
 const hatToday = (now: number) => {
-  const d = new Date(now + utcOffsetS * 1000)
+  const d = new Date(now + offsetAt(now) * 1000)
   return hatFor(d.getUTCFullYear(), d.getUTCMonth() + 1, d.getUTCDate(), birthday)
 }
 
