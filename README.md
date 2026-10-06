@@ -133,6 +133,8 @@ More variables are coming soon. Each row below is one variable, so adding one is
 | `CLAWD_STATUSLINE` | Uses another statusline script instead of `~/.claude/statusline-rgb.js`. |
 | `CLAWD_NODE` | Full path of the Node executable that runs the statusline, e.g. `"C:/Program Files/nodejs/node.exe"`. Without it, the mod tries `node` from the PATH, then (on Windows) whatever `where node` finds, then the usual Mac/Linux paths. |
 | `CLAWD_DEBUG` | Any value turns it on: saves a log of your clicks in `~/.claude/plugins/store/clawd_inline-*.json`, to help report problems. |
+| `CLAWD_WEATHER` | `off` (or `0`, `false`) turns the weather off: no IP lookup and no Open-Meteo request. The statusline shows no weather, and Clawd never opens the umbrella or makes it rain on the lane. |
+| `CLAWD_LIMITS` | `off` (or `0`, `false`) turns off the api.anthropic.com request. The statusline keeps only what the app itself reports with each reply, and Clawd does not get "worried" about the limit. |
 
 If the band is narrow, the statusline switches to the compact format. To force compact
 always, create the empty file `~/.claude/statusline-narrow`.
@@ -141,8 +143,17 @@ always, create the empty file `~/.claude/statusline-narrow`.
 
 ## Privacy: who the mod talks to
 
-| Service | What is sent | What for | How often |
-|---|---|---|---|
+| Service | What is sent | What for | How often | How to turn off |
+|---|---|---|---|---|
+| [get.geojs.io](https://www.geojs.io) (backup: [ipwho.is](https://ipwho.is)) | your IP (sent automatically with any request) | finding your city, for the weather | once an hour | `CLAWD_WEATHER=off` (or pin the place with `CLAWD_LOCATION`) |
+| [Open-Meteo](https://open-meteo.com) | rounded latitude and longitude | the weather and the time zone | every 15 min | `CLAWD_WEATHER=off` |
+| api.anthropic.com | your own Claude login | the statusline usage limits | every 2 min | `CLAWD_LIMITS=off` |
+
+Nothing else leaves your machine, and nothing is stored outside it. With `CLAWD_LOCATION`,
+the IP lookup does not happen. To keep the mod off the internet entirely, put
+`CLAWD_WEATHER=off` and `CLAWD_LIMITS=off` in the `env` of settings.json.
+
+---|---|---|---|
 | [get.geojs.io](https://www.geojs.io) (backup: [ipwho.is](https://ipwho.is)) | your IP (sent automatically with any request) | finding your city, for the weather | once an hour |
 | [Open-Meteo](https://open-meteo.com) | rounded latitude and longitude | the weather and the time zone | every 15 min |
 | api.anthropic.com | your own Claude login | the statusline usage limits | every 2 min |
@@ -304,6 +315,8 @@ Mais variáveis chegam em breve. Cada linha da tabela é uma variável, então a
 | `CLAWD_STATUSLINE` | Usa outro script de statusline no lugar de `~/.claude/statusline-rgb.js`. |
 | `CLAWD_NODE` | Caminho completo do executável do Node que roda a statusline, por exemplo `"C:/Program Files/nodejs/node.exe"`. Sem ela, o mod tenta o `node` do PATH, depois (no Windows) o que o `where node` achar, depois os caminhos comuns do Mac/Linux. |
 | `CLAWD_DEBUG` | Qualquer valor liga: grava um registro dos cliques em `~/.claude/plugins/store/clawd_inline-*.json`, para ajudar a relatar problemas. |
+| `CLAWD_WEATHER` | `off` (ou `0`, `false`) desliga o clima: nenhuma consulta de IP nem ao Open-Meteo. A statusline fica sem o clima e o Clawd nunca abre o guarda-chuva nem faz chover na pista. |
+| `CLAWD_LIMITS` | `off` (ou `0`, `false`) desliga a consulta a api.anthropic.com. A statusline fica só com o que o próprio app informa a cada resposta, e o Clawd não fica "preocupado" por causa do limite. |
 
 Se a faixa estiver estreita, a statusline usa o formato compacto. Para forçar o compacto
 sempre, crie o arquivo vazio `~/.claude/statusline-narrow`.
@@ -312,14 +325,15 @@ sempre, crie o arquivo vazio `~/.claude/statusline-narrow`.
 
 ## Privacidade: com quem o mod conversa
 
-| Serviço | O que vai | Para quê | Com que frequência |
-|---|---|---|---|
-| [get.geojs.io](https://www.geojs.io) (reserva: [ipwho.is](https://ipwho.is)) | o seu IP (vai sozinho em qualquer acesso) | descobrir a cidade, para o clima | 1 vez por hora |
-| [Open-Meteo](https://open-meteo.com) | a latitude e longitude arredondadas | o clima e o fuso horário | a cada 15 min |
-| api.anthropic.com | o seu próprio login do Claude | os limites de uso da statusline | a cada 2 min |
+| Serviço | O que vai | Para quê | Com que frequência | Como desligar |
+|---|---|---|---|---|
+| [get.geojs.io](https://www.geojs.io) (reserva: [ipwho.is](https://ipwho.is)) | o seu IP (vai sozinho em qualquer acesso) | descobrir a cidade, para o clima | 1 vez por hora | `CLAWD_WEATHER=off` (ou fixe o lugar com `CLAWD_LOCATION`) |
+| [Open-Meteo](https://open-meteo.com) | a latitude e longitude arredondadas | o clima e o fuso horário | a cada 15 min | `CLAWD_WEATHER=off` |
+| api.anthropic.com | o seu próprio login do Claude | os limites de uso da statusline | a cada 2 min | `CLAWD_LIMITS=off` |
 
 Nada sai da sua máquina além disso, e nada é guardado fora dela. Com `CLAWD_LOCATION`, a
-consulta de IP não acontece.
+consulta de IP não acontece. Para o mod não falar com a internet nenhuma, ponha
+`CLAWD_WEATHER=off` e `CLAWD_LIMITS=off` no `env` do settings.json.
 
 ---
 

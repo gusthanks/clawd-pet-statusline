@@ -584,3 +584,46 @@ test('o node no Windows: PATH falha, o "where node" roda uma vez e o resultado f
   expect(calls.filter((c) => c === 'where')).toHaveLength(1)
   expect(calls.filter((c) => c === 'C:/nvm4w/nodejs/node.exe').length).toBeGreaterThan(1)
 })
+
+// Os botões de desligar a internet: com "off" (ou 0, false) não sai nenhuma requisição.
+for (const off of ['off', 'OFF', '0', 'false']) {
+  test(`CLAWD_WEATHER=${off} e CLAWD_LIMITS=${off}: nenhuma requisição, sem clima e sem preocupação`, { timeout: 60000 }, async ($, on) => {
+    const { clock, fetches } = world(on, {
+      env: { CLAWD_WEATHER: off, CLAWD_LIMITS: off },
+      store: { weather: { emoji: '🌧️', temp: 22, rain: true, at: 1_700_000_000_000 } },
+    })
+    await start($)
+    const ui = await $.ui.mount({ plugin: 'clawd', surface: 'desktop', ...band(false) })
+    await clock.advance(5 * 60_000)
+    expect(await ui.find({ type: 'Text', text: /22°/ })).toBeUndefined()
+    expect(String((await ui.find({ type: 'Svg' }))?.props.source)).not.toContain('#8ab4f8')
+    expect(fetches).toEqual([])
+    const r = await report($)
+    expect(r.clima).toBeNull()
+    expect(r.preocupado).toBe(false)
+    expect(fetches).toEqual([])
+    await ui.unmount()
+  })
+}
+
+test('só CLAWD_WEATHER=off: os limites ainda são consultados, o clima não', { timeout: 60000 }, async ($, on) => {
+  const { clock, fetches } = world(on, { env: { CLAWD_WEATHER: 'off' } })
+  await start($)
+  const ui = await $.ui.mount({ plugin: 'clawd', surface: 'desktop', ...band(false) })
+  await clock.advance(60_000)
+  await report($)
+  expect(fetches.some(u => u.includes('anthropic'))).toBe(true)
+  expect(fetches.some(u => u.includes('open-meteo') || u.includes('geojs') || u.includes('ipwho'))).toBe(false)
+  await ui.unmount()
+})
+
+test('só CLAWD_LIMITS=off: o clima ainda é consultado, os limites não', { timeout: 60000 }, async ($, on) => {
+  const { clock, fetches } = world(on, { env: { CLAWD_LIMITS: 'off' } })
+  await start($)
+  const ui = await $.ui.mount({ plugin: 'clawd', surface: 'desktop', ...band(false) })
+  await clock.advance(60_000)
+  await report($)
+  expect(fetches.some(u => u.includes('open-meteo'))).toBe(true)
+  expect(fetches.some(u => u.includes('anthropic'))).toBe(false)
+  await ui.unmount()
+})

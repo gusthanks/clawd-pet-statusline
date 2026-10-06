@@ -8,6 +8,7 @@ seguem o [Versionamento Semântico](https://semver.org/lang/pt-BR/).
 
 ### Adicionado
 
+- `CLAWD_WEATHER=off` e `CLAWD_LIMITS=off` (também `0` e `false`): desligam, cada uma, as chamadas à internet do clima (IP e Open-Meteo) e dos limites (api.anthropic.com). Com `off` não sai nenhuma requisição.
 - `CLAWD_NODE`: caminho do Node que roda a statusline. A procura agora é CLAWD_NODE, `node` do PATH, `where node` (só no Windows, uma vez) e os caminhos de Mac/Linux; o caminho fixo da máquina do autor saiu do código.
 - `CLAWD_DEBUG`: com ela definida, o registro dos cliques é gravado no store (sem ela, fica só em memória). O registro de tamanhos da faixa (`renderLog`) foi removido.
 - Limpeza automática da memória do mod: o esforço e as linhas de conversas não vistas há mais de 7 dias (e as órfãs de versões antigas) são apagados ao começar uma conversa.

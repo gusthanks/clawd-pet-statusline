@@ -112,6 +112,12 @@ let limitsStrikes = 0
 let weatherNote = 'ainda não consultado'
 let tired = false
 let worried = false
+// Os botões de desligar as chamadas à internet (CLAWD_WEATHER / CLAWD_LIMITS = off, 0 ou false).
+// Lidos de novo a cada consulta; os desenhos usam o último valor lido.
+let weatherOff = false
+let limitsOff = false
+
+const isOff = (v: string | undefined) => ['off', '0', 'false'].includes(String(v ?? '').trim().toLowerCase())
 
 // O fetch do mod não tem tempo-limite próprio: uma corrida com o relógio faz esse papel.
 const FETCH_TIMEOUT_MS = 10_000
@@ -131,6 +137,12 @@ async function fetchTimed($: EngineInterface, url: string, init?: HttpInit): Pro
 
 async function refreshLimits($: EngineInterface) {
   try {
+    limitsOff = isOff(await $.env.get('CLAWD_LIMITS').catch(() => undefined))
+    if (limitsOff) {
+      live = null
+      limitsNote = 'desligado por CLAWD_LIMITS'
+      return
+    }
     const now = await $.clock.now()
     // A leitura e a vez de consultar são da conta, não da conversa: as conversas abertas
     // dividem as duas pelo armazenamento do mod, e o "castigo" de um 429 vale para todas.
@@ -193,12 +205,12 @@ async function statusInput($: EngineInterface) {
     return Number.isFinite(resets) ? { used_percentage: w.percentUsed, resets_at: resets } : { used_percentage: w.percentUsed }
   }
   // O número ao vivo da conta vence o da última resposta desta conversa.
-  const fresh = live && now - live.at < LIMITS_FRESH_MS ? live : null
+  const fresh = !limitsOff && live && now - live.at < LIMITS_FRESH_MS ? live : null
   const fiveHour = fresh?.five_hour ?? fromSession('five_hour')
   const sevenDay = fresh?.seven_day ?? fromSession('seven_day')
 
   tired = (usage.context.percent ?? 0) >= TIRED_AT
-  worried = (fiveHour?.used_percentage ?? 0) >= WORRIED_AT
+  worried = !limitsOff && (fiveHour?.used_percentage ?? 0) >= WORRIED_AT
 
   return {
     session_id: id,
@@ -379,6 +391,12 @@ async function refreshPlace($: EngineInterface) {
 
 async function refreshWeather($: EngineInterface) {
   try {
+    weatherOff = isOff(await $.env.get('CLAWD_WEATHER').catch(() => undefined))
+    if (weatherOff) {
+      weatherNote = 'desligado por CLAWD_WEATHER'
+      placeNote = weatherNote
+      return
+    }
     await refreshPlace($)
     if (!place) {
       weatherNote = 'sem lugar: não sei onde você está'
@@ -712,6 +730,8 @@ export const register: Register = on => {
     lastLane = null
     tapLog.length = 0
     debugOn = !!(await $.env.get('CLAWD_DEBUG').catch(() => undefined))
+    weatherOff = isOff(await $.env.get('CLAWD_WEATHER').catch(() => undefined))
+    limitsOff = isOff(await $.env.get('CLAWD_LIMITS').catch(() => undefined))
     await $.store.delete('renderLog').catch(() => undefined) // sobra de uma depuração antiga
     promptText = ''
     standingSeen = null
@@ -796,7 +816,7 @@ export const register: Register = on => {
       cena: scene?.spec.kind ?? null,
       reacao: scene?.spec.intro[0]?.pose.fx ?? null,
       toques: tapLog.slice(),
-      clima: await read($, weather),
+      clima: weatherOff ? null : await read($, weather),
       clima_nota: weatherNote,
       ajudantes: [...running.keys()],
       linhas: await read($, lines),
@@ -1002,7 +1022,7 @@ export const register: Register = on => {
 
     // A statusline dele, mais o clima ao lado da pasta.
     const rows: StatusSpan[][] = base.map(l => [...l])
-    const skyNow = sky && now - sky.at < WEATHER_STALE_MS ? sky : null // leitura velha não aparece
+    const skyNow = !weatherOff && sky && now - sky.at < WEATHER_STALE_MS ? sky : null // leitura velha não aparece
     if (skyNow && rows.length) rows[0] = [...rows[0], { t: '  ' }, { t: `${skyNow.emoji} ${Math.round(skyNow.temp)}°` }]
 
     // A pista é o que sobra à direita da statusline. Se não sobra o bastante (a faixa
