@@ -1,0 +1,6 @@
+# tipos que o Claude Code grava sozinho ao carregar o mod
+clawd/.claude-plugin/types/
+# prévia local do laptop
+tools/laptop-preview.png
+__pycache__/
+*.bak-*
