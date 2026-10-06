@@ -97,6 +97,39 @@ function umbrella(cx: number, top: number, half: number, pole: number): string {
   return out + rect(cx - 1, top + 5, 2, pole, WOOD)
 }
 
+// Chapéus de data (acessórios da cabeça, que ocupam as linhas 0 a 6, logo acima da cabeça):
+// gorro de Natal e chapéu de festa. Servem para a pose de frente e para a de digitar.
+const CONFETTI = ['#ffd166', '#06d6a0', '#118ab2', '#ef476f', ORANGE, '#c77dff']
+
+const SANTA = '#d32f2f'
+const SANTA_SHADE = '#a82020'
+const FUR = '#f5f5f5'
+const FUR_SHADE = '#d6d6d6'
+
+const santaHat =
+  rect(15, 4, 14, 1, SANTA) + rect(16, 3, 12, 1, SANTA) + rect(18, 2, 10, 1, SANTA) + rect(21, 1, 9, 1, SANTA) + rect(26, 0, 5, 1, SANTA) +
+  cells([[16, 4], [17, 3], [19, 2]], SANTA_SHADE) + cells([[24, 3], [26, 2], [27, 1]], '#ff6b6b') +
+  rect(13, 5, 18, 2, FUR) + rect(13, 6, 18, 1, FUR_SHADE) +
+  rect(30, 0, 4, 3, FUR) + rect(31, 2, 3, 1, FUR_SHADE)
+
+const partyHat =
+  [[21, 2], [20, 4], [19, 6], [18, 8], [17, 10], [16, 12]]
+    .map(([x, w], i) => rect(x, 1 + i, w, 1, i % 2 ? '#ef476f' : VIOLET))
+    .join('') +
+  cells([[22, 2], [20, 3], [24, 4], [21, 5], [26, 6], [18, 6]], '#ffd166') +
+  rect(21, 0, 2, 1, '#ffd166')
+
+// Um confete leve caindo em volta da cabeça (só no chapéu de festa): cada pedacinho cai e some.
+const hatConfetti = [[11, 0], [33, 1], [15, 0], [29, 0], [8, 3], [31, 3]]
+  .map(([x, y], i) =>
+    `<rect x="${x}" y="${y}" width="1.5" height="1.5" fill="${CONFETTI[i % CONFETTI.length]}" opacity="0">` +
+    `<animate attributeName="opacity" values="0;1;1;0" keyTimes="0;0.1;0.8;1" dur="${2.2 + (i % 3) * 0.4}s" begin="${-(i * 0.53)}s" ${LOOP}/>` +
+    `<animateTransform attributeName="transform" type="translate" values="0 0;${(i % 3) - 1} 11" dur="${2.2 + (i % 3) * 0.4}s" begin="${-(i * 0.53)}s" ${LOOP}/></rect>`,
+  )
+  .join('')
+
+const HATS = { santa: santaHat, party: partyHat + hatConfetti }
+
 export const FRONT_PROPS = {
   // preocupado: sobrancelhas com a ponta de dentro levantada
   brows: cells([[15, 8], [16, 8], [17, 7], [26, 7], [27, 8], [28, 8]], EYE),
@@ -106,6 +139,9 @@ export const FRONT_PROPS = {
   mug: rect(6, 10, 4, 5, '#eeeeee') + rect(7, 10, 2, 1, '#6f4e37') + rect(5, 11, 1, 2, '#cccccc') + steam(6.5, 0) + steam(7.5, 1),
   // chovendo: o guarda-chuva preso na cabeça
   umbrella: umbrella(22, -2, 12, 3),
+  // datas: o gorro de Natal e o chapéu de festa (Ano Novo, aniversário)
+  santa: HATS.santa,
+  party: HATS.party,
   // plaquinha de pausa, na mão esquerda
   sign:
     rect(-5, 0, 17, 7, '#b08d57') +
@@ -142,6 +178,9 @@ export const TYPING_PROPS = {
   // chovendo, digitando
   // trabalhando: guarda-chuva grande preso na cabeça, cobrindo ele e o laptop
   umbrellaT: umbrella(22, -2, 13, 3),
+  // datas, com o laptop aberto
+  santaT: HATS.santa,
+  partyT: HATS.party,
 }
 export type TypingProp = keyof typeof TYPING_PROPS
 export const TYPING_PROP_KINDS = Object.keys(TYPING_PROPS) as TypingProp[]
@@ -153,8 +192,6 @@ const floaty = (glyph: string, x: number, y: number, size: number, begin: number
   `<animate attributeName="opacity" values="0;1;0" dur="${dur}s" begin="${begin}s" ${LOOP}/>` +
   `<animateTransform attributeName="transform" type="translate" values="0 0;3 -7" dur="${dur}s" begin="${begin}s" ${LOOP}/>` +
   `</text>`
-
-const CONFETTI = ['#ffd166', '#06d6a0', '#118ab2', '#ef476f', ORANGE, '#c77dff']
 
 // Uma estrela de pontas (o "POW" de história em quadrinhos), centrada em (0, 0).
 const burst = (outer: number, inner: number, fill: string, points = 8) =>

@@ -7,8 +7,8 @@ import type { Ran } from './git'
 import { BOX_W, CELL, CH_PX, LANE_GAP_CH, LANE_MIN_CH, LANE_MIN_H, LANE_W, laneSvg, LINE_PX, PAD, PARK_PX, SVG_SAFE, wideFits } from './lane'
 import { LIMITS_BACKOFF_MS, LIMITS_EVERY_MS, LIMITS_FRESH_MS, USAGE_URL, windowOf } from './limits'
 import type { Window } from './limits'
-import { activityFor, ALT, ASK_S, BREAK_GAP_S, buildScene, FIREWORKS_S, OOPS_S, PARTY_S, PAUSE_EVERY_S, PAUSE_S, posAt, SLEEP_NIGHT_S, SLEEP_S, STREAK_S } from './scenes'
-import type { Flags, SceneKind, Spec } from './scenes'
+import { activityFor, ALT, ASK_S, BREAK_GAP_S, buildScene, FIREWORKS_S, hatFor, parseBirthday, OOPS_S, PARTY_S, PAUSE_EVERY_S, PAUSE_S, posAt, SLEEP_NIGHT_S, SLEEP_S, STREAK_S } from './scenes'
+import type { Birthday, Flags, SceneKind, Spec } from './scenes'
 import { parseAnsi, prettyModel } from './statusline'
 import { clawdSpan, parseTap, TAP_COMBO_MS, TAP_COMBO_N, TAP_KEY, TAP_LOG_MAX, tapScene } from './tapinha'
 import type { Tap } from './tapinha'
@@ -348,6 +348,12 @@ async function noteEffort($: EngineInterface, level: string | undefined) {
 // A hora do lugar onde ele está: o fuso vem junto com a previsão do tempo (UTC-3 até lá).
 let utcOffsetS = -3 * 3600
 const hourHere = (now: number) => new Date(now + utcOffsetS * 1000).getUTCHours()
+// O aniversário (CLAWD_BIRTHDAY="DD-MM"), lido no session.start; e o chapéu do dia pela data local.
+let birthday: Birthday | null = null
+const hatToday = (now: number) => {
+  const d = new Date(now + utcOffsetS * 1000)
+  return hatFor(d.getUTCFullYear(), d.getUTCMonth() + 1, d.getUTCDate(), birthday)
+}
 
 // ---------- o clima (onde ele estiver) ----------
 
@@ -766,6 +772,7 @@ export const register: Register = on => {
     debugOn = !!(await $.env.get('CLAWD_DEBUG').catch(() => undefined))
     weatherOff = isOff(await $.env.get('CLAWD_WEATHER').catch(() => undefined))
     limitsOff = isOff(await $.env.get('CLAWD_LIMITS').catch(() => undefined))
+    birthday = parseBirthday(await $.env.get('CLAWD_BIRTHDAY').catch(() => undefined))
     await $.store.delete('renderLog').catch(() => undefined) // sobra de uma depuração antiga
     promptText = ''
     standingSeen = null
@@ -1146,6 +1153,7 @@ export const register: Register = on => {
       tool,
       rain: !!skyNow?.rain,
       ultra: isUltra,
+      hat: hatToday(now),
     }
     const elapsed = (now - sc.startedAt) / 1000
     const boomAgo = !boom ? null : fireworksUntilAt >= 0 ? Math.max(0, (now - fireworksUntilAt) / 1000 + FIREWORKS_S) : now / 1000

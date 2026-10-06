@@ -98,12 +98,14 @@ function compile(spec: Spec, part: Step[], flags: Flags): Tracks {
     }
     for (const k of TYPING_PROP_KINDS) {
       const on =
-        !!pose.typing &&
-        ((k === 'glasses' && flags.tool === 'read') ||
-          (k === 'magnifier' && flags.tool === 'web') ||
-          (k === 'hammer' && flags.tool === 'edit') ||
-          (k === 'browsT' && flags.worried) ||
-          (k === 'umbrellaT' && flags.rain))
+        (!!pose.typing &&
+          ((k === 'glasses' && flags.tool === 'read') ||
+            (k === 'magnifier' && flags.tool === 'web') ||
+            (k === 'hammer' && flags.tool === 'edit') ||
+            (k === 'browsT' && flags.worried) ||
+            (k === 'umbrellaT' && flags.rain))) ||
+        // o chapéu de data vai com o laptop aberto (a cabeça não se mexe); com chuva, o guarda-chuva ganha
+        (!!pose.laptop && !flags.rain && ((k === 'santaT' && flags.hat === 'santa') || (k === 'partyT' && flags.hat === 'party')))
       vis(`typing:${k}`, t0, on)
     }
 
@@ -132,6 +134,9 @@ function compile(spec: Spec, part: Step[], flags: Flags): Tracks {
     // chovendo: o guarda-chuva fica preso na cabeça (no pulo de alegria ele some)
     vis('prop:umbrella', t0, flags.rain && motion !== 'jump')
     vis('prop:sign', t0, !!pose.sign)
+    // o chapéu de data: com chuva ele some (o guarda-chuva ganha); no pulo de alegria ele fica
+    vis('prop:santa', t0, flags.hat === 'santa' && !flags.rain)
+    vis('prop:party', t0, flags.hat === 'party' && !flags.rain)
     for (const k of ['legsA', 'legsB', 'bob', 'lift'] as const) tr[k].push([t0, '0 0'])
 
     // o corpo: acenando, ou parado numa pose

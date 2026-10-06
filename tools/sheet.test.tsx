@@ -169,6 +169,12 @@ test('rain-work', T, async ($, on) => {
   await typing($, c, 'rain-work')
 })
 
+test('holiday', T, async ($, on) => {
+  const c = world(on, { now: Date.UTC(2027, 0, 1, 15) }) // 1º de janeiro: chapéu de festa
+  await begin($, c)
+  await shot($, 'holiday', false)
+})
+
 test('helpers', T, async ($, on) => {
   const c = world(on)
   await begin($, c)

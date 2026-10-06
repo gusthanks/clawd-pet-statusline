@@ -812,3 +812,82 @@ test('chamando: o tapinha mostra a reação e ele volta a chamar', { timeout: 60
   expect(await alt(ui)).toContain('chamando')
   await ui.unmount()
 })
+
+// ---------- chapéu de data: gorro de Natal, chapéu de festa e aniversário ----------
+
+const SANTA_RED = '#d32f2f' // só o gorro usa
+const PARTY_VIOLET = '#a78bfa' // só o chapéu de festa usa (sem o ultracode)
+const UMBRELLA_RED = '#e5484d'
+
+// 12h no horário local (UTC-3, o padrão sem previsão do tempo) do dia pedido
+const noonOn = (y: number, m: number, d: number) => Date.UTC(y, m - 1, d, 15)
+
+async function hatOn($: any, on: On, when: number, opts: WorldOptions = {}, working = false) {
+  const { clock } = world(on, { now: when, env: { CLAWD_WEATHER: 'off', ...opts.env }, store: opts.store })
+  on('turn.start', ($, e) => ({ turnId: e.turnId }))
+  await start($)
+  if (working) await $.turn.start({ text: 'oi', turnId: 't' })
+  const ui = await $.ui.mount({ plugin: 'clawd', surface: 'desktop', ...band(working) })
+  await clock.advance(working ? 15_000 : 5_000) // trabalhando: passa o aceno e a corrida, e chega no laptop
+  const src = String((await ui.find({ type: 'Svg' }))?.props.source)
+  await ui.unmount()
+  return src
+}
+
+test('chapéu: 24 e 25/12 o Clawd usa o gorro de Natal', { timeout: 60000 }, async ($, on) => {
+  const src = await hatOn($, on, noonOn(2026, 12, 25))
+  expect(src).toContain(SANTA_RED)
+  expect(src).not.toContain(PARTY_VIOLET)
+})
+
+test('chapéu: 01/01 o Clawd usa o chapéu de festa, com confete', { timeout: 60000 }, async ($, on) => {
+  const src = await hatOn($, on, noonOn(2027, 1, 1))
+  expect(src).toContain(PARTY_VIOLET)
+  expect(src).not.toContain(SANTA_RED)
+})
+
+test('chapéu: 31/12 também é chapéu de festa', { timeout: 60000 }, async ($, on) => {
+  expect(await hatOn($, on, noonOn(2026, 12, 31))).toContain(PARTY_VIOLET)
+})
+
+test('chapéu: CLAWD_BIRTHDAY no dia vira chapéu de festa', { timeout: 60000 }, async ($, on) => {
+  expect(await hatOn($, on, noonOn(2026, 10, 6), { env: { CLAWD_BIRTHDAY: '06-10' } })).toContain(PARTY_VIOLET)
+})
+
+test('chapéu: CLAWD_BIRTHDAY em outro dia, ou inválido, não põe chapéu', { timeout: 60000 }, async ($, on) => {
+  const src = await hatOn($, on, noonOn(2026, 10, 6), { env: { CLAWD_BIRTHDAY: '07-10' } })
+  expect(src).not.toContain(PARTY_VIOLET)
+  expect(src).not.toContain(SANTA_RED)
+})
+
+test('chapéu: CLAWD_BIRTHDAY inválido é ignorado', { timeout: 60000 }, async ($, on) => {
+  expect(await hatOn($, on, noonOn(2026, 10, 6), { env: { CLAWD_BIRTHDAY: '31-02' } })).not.toContain(PARTY_VIOLET)
+})
+
+test('chapéu: aniversário em 25/12 vale o chapéu de festa, não o gorro', { timeout: 60000 }, async ($, on) => {
+  const src = await hatOn($, on, noonOn(2026, 12, 25), { env: { CLAWD_BIRTHDAY: '25-12' } })
+  expect(src).toContain(PARTY_VIOLET)
+  expect(src).not.toContain(SANTA_RED)
+})
+
+test('chapéu: dia comum, nada na cabeça', { timeout: 60000 }, async ($, on) => {
+  const src = await hatOn($, on, noonOn(2026, 10, 6))
+  expect(src).not.toContain(SANTA_RED)
+  expect(src).not.toContain(PARTY_VIOLET)
+})
+
+test('chapéu: trabalhando no laptop o chapéu continua na cabeça', { timeout: 60000 }, async ($, on) => {
+  expect(await hatOn($, on, noonOn(2026, 12, 25), {}, true)).toContain(SANTA_RED)
+})
+
+test('chapéu: chovendo, o guarda-chuva vence e o chapéu some', { timeout: 60000 }, async ($, on) => {
+  // aqui o clima fica ligado: o mock responde com chuva
+  const { clock } = world(on, { now: noonOn(2026, 12, 25) })
+  await start($)
+  const ui = await $.ui.mount({ plugin: 'clawd', surface: 'desktop', ...band(false) })
+  await clock.advance(5_000)
+  const src = String((await ui.find({ type: 'Svg' }))?.props.source)
+  await ui.unmount()
+  expect(src).toContain(UMBRELLA_RED)
+  expect(src).not.toContain(SANTA_RED)
+})

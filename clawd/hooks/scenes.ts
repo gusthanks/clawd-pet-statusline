@@ -64,6 +64,33 @@ export type Flags = {
   tool: Activity
   rain: boolean
   ultra: boolean
+  hat: Hat
+}
+
+// O chapéu do dia: gorro de Natal (24 e 25/12) ou chapéu de festa (31/12, 1/1 e o aniversário).
+export type Hat = '' | 'santa' | 'party'
+export type Birthday = { month: number; day: number }
+
+// "DD-MM" (ou "DD/MM"), a variável CLAWD_BIRTHDAY. Qualquer outra coisa vale como sem aniversário.
+export function parseBirthday(raw: string | undefined): Birthday | null {
+  const m = /^\s*(\d{1,2})\s*[-/]\s*(\d{1,2})\s*$/.exec(String(raw ?? ''))
+  if (!m) return null
+  const day = Number(m[1])
+  const month = Number(m[2])
+  if (month < 1 || month > 12 || day < 1 || day > [31, 29, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31][month - 1]) return null
+  return { month, day }
+}
+
+// O chapéu de hoje (mês 1-12 e dia, pela hora local). Aniversário ganha de Natal; 29/02 festeja em 28/02 nos anos sem bissexto.
+export function hatFor(year: number, month: number, day: number, birthday: Birthday | null): Hat {
+  if (birthday) {
+    const leap = (year % 4 === 0 && year % 100 !== 0) || year % 400 === 0
+    const bd = birthday.month === 2 && birthday.day === 29 && !leap ? 28 : birthday.day
+    if (month === birthday.month && day === bd) return 'party'
+  }
+  if (month === 12 && (day === 24 || day === 25)) return 'santa'
+  if ((month === 12 && day === 31) || (month === 1 && day === 1)) return 'party'
+  return ''
 }
 
 export const stand = (p: number, d: number, pose: Pose = {}): Step => ({
