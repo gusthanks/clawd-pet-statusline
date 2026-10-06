@@ -345,6 +345,9 @@ async function refreshStatus($: EngineInterface) {
             if (key !== lastStatusKey) {
               lastStatusKey = key
               await update($, status, () => parsed)
+              // guardada por pasta: a próxima conversa aqui já abre com ela, sem esperar o node
+              const cwd = await $.session.cwd().catch(() => '')
+              if (cwd) await $.store.set(`statusCache:${cwd}`, parsed).catch(() => undefined)
             }
           }
           break
@@ -1045,8 +1048,10 @@ function laneSvg(spec: Spec, elapsed: number, flags: Flags, height: number, lane
     // a imagem já nasce com o Clawd onde ele está agora: se o app mostrar um quadro antes de as
     // animações começarem (ele recria a imagem a cada redesenho, como no tapinha), as duas partes
     // da posição (a % da pista e a volta em células) continuam juntas e ele não aparece cortado
-    `<svg x="${round(p0 * 100)}%" y="${top}" width="${BOX_W * CELL}" height="${BOX_H * CELL}" viewBox="0 0 ${BOX_W} ${BOX_H}" overflow="visible">` +
-    glide('x', 'animate', p => `${round(p * 100)}%`) +
+    // o desenho do Clawd fica guardado em <defs> (em células) e aparece por um <use>, que anda em %
+    // da imagem como a chuva: um <svg> interno, no quadro em que o app troca a imagem, às vezes
+    // perde a posição e o Clawd aparecia cortado no começo da pista
+    `<defs><g id="clawd-sprite"><g transform="scale(${CELL})">` +
     `<g transform="translate(${round(PAD / CELL - p0 * comp)} 0)">${glide('transform', 'animateTransform', p => `${round(PAD / CELL - p * comp)} 0`)}<g>${slide}` +
     aura +
     (squashed ? `<g transform="translate(${SQUASH_X} ${BOX_H})"><g transform="scale(${nowOf(t => t.squash, '1 1')})">${squashAnim}<g transform="translate(${-SQUASH_X} ${-BOX_H})">` : '') +
@@ -1055,7 +1060,8 @@ function laneSvg(spec: Spec, elapsed: number, flags: Flags, height: number, lane
     typing +
     (squashed ? `</g></g></g>` : '') +
     fx +
-    `</g></g></svg>` +
+    `</g></g></g></g></defs>` +
+    `<use href="#clawd-sprite" x="${round(p0 * 100)}%" y="${top}">${glide('x', 'animate', p => `${round(p * 100)}%`)}</use>` +
     (lane.fireworks !== null ? phased(fireworksLayer(height), lane.fireworks) : '') +
     `</svg>`
   )
@@ -1310,6 +1316,10 @@ const isLines = (v: unknown): v is Lines =>
 // Um passo do relógio, uma vez por segundo.
 async function stepClock($: EngineInterface) {
   const now = await $.clock.now()
+  if (renderLogDirty) {
+    renderLogDirty = false
+    await $.store.set('renderLog', renderLog).catch(() => undefined)
+  }
   const sleepAfter = (nowHour < 5 ? SLEEP_NIGHT_S : SLEEP_S) * 1000
   if (now - lastActiveAt >= BREAK_GAP_S * 1000) streakStartAt = -1 // ele fez uma pausa de verdade
   if ((current === 'party' || current === 'oops' || current === 'pause') && now >= untilAt) {
@@ -1342,9 +1352,26 @@ async function stepClock($: EngineInterface) {
 // faixa, e ela só existe no desktop: no terminal e nos "claude -p" o mod fica parado.
 // Numa conversa nova o app se conecta DEPOIS do session.start, por isso a chegada
 // dele (session.attach) também liga; num recarregamento ele já está lá.
+// A conversa abre com a última statusline desta pasta enquanto a leitura nova não chega.
+async function seedStatus($: EngineInterface) {
+  try {
+    if ((await read($, status)).length) return
+    const cwd = await $.session.cwd()
+    const cached = await $.store.get(`statusCache:${cwd}`)
+    if (Array.isArray(cached) && cached.length && (await read($, status)).length === 0) await update($, status, () => cached as StatusSpan[][])
+  } catch {
+    // sem cópia guardada: espera a primeira leitura
+  }
+}
+
+// Diagnóstico: os tamanhos que o app deu para a faixa (últimos 12 diferentes), guardados pelo tique.
+const renderLog: Record<string, unknown>[] = []
+let renderLogDirty = false
+
 function startBandPollers($: EngineInterface) {
   if (bandPollersOn) return
   bandPollersOn = true
+  void seedStatus($)
   $.clock.every(1000, () => {
     void stepClock($).catch(() => undefined)
   })
@@ -1687,6 +1714,13 @@ export const register: Register = on => {
     const travel = laneEst - PAD - (BOX_W + helpersZone(team, cap)) * CELL
     const parked = travel < PARK_PX
     const height = sideBySide ? Math.max(LANE_MIN_H, Math.round(rows.length * LINE_PX)) : LANE_MIN_H
+    const seen = { cols: e.props.bodyColumns, maxRows: e.props.maxRows, rows: rows.length, sideBySide, height, kind }
+    const last = renderLog[renderLog.length - 1]
+    if (!last || ['cols', 'maxRows', 'rows', 'sideBySide', 'height'].some(k => last[k] !== (seen as Record<string, unknown>)[k])) {
+      renderLog.push({ ...seen, at: now })
+      if (renderLog.length > 12) renderLog.splice(0, renderLog.length - 12)
+      renderLogDirty = true
+    }
 
     // a pista nunca passa de LANE_W: com isso o SVG fica sempre abaixo do limite do app
     const sceneTravel = Math.min(Math.max(80, travel), LANE_W - PAD - BOX_W * CELL)

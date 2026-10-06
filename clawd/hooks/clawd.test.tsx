@@ -18,7 +18,7 @@ const USAGE_JSON = JSON.stringify({
 
 const run = (stdout: string) => ({ exitCode: 0, stdout, stderr: '', isStdoutTruncated: false, isStderrTruncated: false })
 
-type WorldOptions = { sid?: () => string; settings?: () => Record<string, unknown>; store?: Record<string, unknown> }
+type WorldOptions = { sid?: () => string; settings?: () => Record<string, unknown>; store?: Record<string, unknown>; statusline?: string }
 
 // O teste faz o papel do motor: a sessão, a statusline, a configuração e a internet.
 function world(on: On, opts: WorldOptions = {}) {
@@ -37,7 +37,7 @@ function world(on: On, opts: WorldOptions = {}) {
   on('tool.register', () => ({ value: { tool: 'mcp__clawd__recarregar' } }))
   on('process.run', ($, e) => {
     envs.push(e.init?.env as Record<string, string> | undefined)
-    return { value: run(STATUSLINE_OUT) }
+    return { value: run(opts.statusline ?? STATUSLINE_OUT) }
   })
   on('http.fetch', ($, e) => {
     fetches.push(e.url)
@@ -448,5 +448,17 @@ test('tapinha: acorda o Clawd que dorme, e ele não volta a cochilar logo em seg
   expect((await report($)).cena).toBe('idle')
   await clock.advance(3_000)
   expect((await ui.find({ type: 'Svg' }))?.props.alt).toBe('Clawd passeando')
+  await ui.unmount()
+})
+
+test('a conversa abre com a última statusline guardada desta pasta, sem esperar o node', async ($, on) => {
+  const { clock } = world(on, {
+    store: { 'statusCache:C:/Users/voce': [[{ t: '📂 ' }, { t: 'guardada', c: '#ebc800', b: true }]] },
+    statusline: '', // o node ainda não respondeu nada
+  })
+  await start($)
+  await clock.settle()
+  const ui = await mountBand($, false)
+  expect(await ui.find({ type: 'Text', text: /guardada/ })).toBeDefined()
   await ui.unmount()
 })
