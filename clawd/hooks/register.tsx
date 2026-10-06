@@ -52,8 +52,36 @@ const taps = atom({ plugin: 'clawd', key: 'taps' } as const, 0)
 
 // A statusline: por padrão ~/.claude/statusline-rgb.js (o instalador copia a do projeto pra lá);
 // a variável CLAWD_STATUSLINE aponta outro script. Roda direto com o node, sem embrulho nenhum.
-const NODES = ['node', 'C:/nvm4w/nodejs/node.exe', '/usr/local/bin/node', '/opt/homebrew/bin/node']
+// Onde procurar o node, nesta ordem: CLAWD_NODE (caminho do executável), "node" no PATH, no Windows o que
+// o "where node" achar (o app pode não ter o nvm no PATH) e, por fim, os caminhos comuns do Mac/Linux.
+const UNIX_NODES = ['/usr/local/bin/node', '/opt/homebrew/bin/node']
 let statuslinePath = ''
+let whereNode: string[] | undefined // o "where node" roda uma vez só e fica guardado
+
+async function windowsNodes($: EngineInterface): Promise<string[]> {
+  if (whereNode) return whereNode
+  const windows = (await $.env.get('OS').catch(() => undefined)) === 'Windows_NT'
+  if (!windows) return []
+  let found: string[] = []
+  try {
+    const out = await $.process.run(['where', 'node'], { timeoutMs: 4000 })
+    if (out.exitCode === 0) found = out.stdout.split(/\r?\n/).map((l) => l.trim().replace(/\\/g, '/')).filter((l) => l !== '')
+  } catch {
+    // sem "where": segue sem esses caminhos
+  }
+  return (whereNode = found)
+}
+
+// Cada etapa só é consultada se a anterior não rodou; assim o "where" só custa quando o "node" do PATH falha.
+const nodeStages = ($: EngineInterface): Array<() => Promise<string[]>> => [
+  async () => {
+    const custom = await $.env.get('CLAWD_NODE').catch(() => undefined)
+    return custom ? [custom] : []
+  },
+  async () => ['node'],
+  () => windowsNodes($),
+  async () => UNIX_NODES,
+]
 
 async function statuslineScript($: EngineInterface): Promise<string> {
   if (statuslinePath) return statuslinePath
@@ -204,23 +232,28 @@ async function refreshStatus($: EngineInterface) {
       const room = lastCols - LANE_MIN_CH - LANE_GAP_CH
       const env: Record<string, string> = { CLAUDE_STATUSLINE_COLS: wideFits(lastCols) ? String(room) : '45' }
       const script = await statuslineScript($)
-      for (const node of NODES) {
-        try {
-          const out = await $.process.run([node, script], { stdin, env, timeoutMs: 8000 })
-          if (out.exitCode === 0 && out.stdout.trim() !== '') {
-            const parsed = parseAnsi(out.stdout)
-            const key = JSON.stringify(parsed)
-            if (key !== lastStatusKey) {
-              lastStatusKey = key
-              await update($, status, () => parsed)
-              // guardada por pasta: a próxima conversa aqui já abre com ela, sem esperar o node
-              const cwd = await $.session.cwd().catch(() => '')
-              if (cwd) await $.store.set(`statusCache:${cwd}`, parsed).catch(() => undefined)
+      let ran = false
+      for (const stage of nodeStages($)) {
+        if (ran) break
+        for (const node of await stage()) {
+          try {
+            const out = await $.process.run([node, script], { stdin, env, timeoutMs: 8000 })
+            if (out.exitCode === 0 && out.stdout.trim() !== '') {
+              const parsed = parseAnsi(out.stdout)
+              const key = JSON.stringify(parsed)
+              if (key !== lastStatusKey) {
+                lastStatusKey = key
+                await update($, status, () => parsed)
+                // guardada por pasta: a próxima conversa aqui já abre com ela, sem esperar o node
+                const cwd = await $.session.cwd().catch(() => '')
+                if (cwd) await $.store.set(`statusCache:${cwd}`, parsed).catch(() => undefined)
+              }
             }
+            ran = true
+            break
+          } catch {
+            // sem esse node, tenta o próximo caminho
           }
-          break
-        } catch {
-          // sem esse node, tenta o próximo caminho
         }
       }
     } while (refreshAgain)

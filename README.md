@@ -131,6 +131,7 @@ More variables are coming soon. Each row below is one variable, so adding one is
 |---|---|
 | `CLAWD_LOCATION` | Pins the weather location, for example `"-23.55,-46.63"`. Without it, the place comes from your internet connection. |
 | `CLAWD_STATUSLINE` | Uses another statusline script instead of `~/.claude/statusline-rgb.js`. |
+| `CLAWD_NODE` | Full path of the Node executable that runs the statusline, e.g. `"C:/Program Files/nodejs/node.exe"`. Without it, the mod tries `node` from the PATH, then (on Windows) whatever `where node` finds, then the usual Mac/Linux paths. |
 | `CLAWD_DEBUG` | Any value turns it on: saves a log of your clicks in `~/.claude/plugins/store/clawd_inline-*.json`, to help report problems. |
 
 If the band is narrow, the statusline switches to the compact format. To force compact
@@ -301,6 +302,7 @@ Mais variáveis chegam em breve. Cada linha da tabela é uma variável, então a
 |---|---|
 | `CLAWD_LOCATION` | Fixa o lugar do clima, por exemplo `"-23.55,-46.63"`. Sem ela, o lugar sai da sua conexão de internet. |
 | `CLAWD_STATUSLINE` | Usa outro script de statusline no lugar de `~/.claude/statusline-rgb.js`. |
+| `CLAWD_NODE` | Caminho completo do executável do Node que roda a statusline, por exemplo `"C:/Program Files/nodejs/node.exe"`. Sem ela, o mod tenta o `node` do PATH, depois (no Windows) o que o `where node` achar, depois os caminhos comuns do Mac/Linux. |
 | `CLAWD_DEBUG` | Qualquer valor liga: grava um registro dos cliques em `~/.claude/plugins/store/clawd_inline-*.json`, para ajudar a relatar problemas. |
 
 Se a faixa estiver estreita, a statusline usa o formato compacto. Para forçar o compacto

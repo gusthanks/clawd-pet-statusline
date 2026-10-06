@@ -18,7 +18,7 @@ const USAGE_JSON = JSON.stringify({
 
 const run = (stdout: string) => ({ exitCode: 0, stdout, stderr: '', isStdoutTruncated: false, isStderrTruncated: false })
 
-type WorldOptions = { sid?: () => string; settings?: () => Record<string, unknown>; store?: Record<string, unknown>; ownStore?: Map<string, unknown>; statusline?: string; env?: Record<string, string> }
+type WorldOptions = { sid?: () => string; settings?: () => Record<string, unknown>; store?: Record<string, unknown>; ownStore?: Map<string, unknown>; statusline?: string; env?: Record<string, string>; proc?: (argv: readonly string[]) => ReturnType<typeof run> }
 
 // O teste faz o papel do motor: a sessão, a statusline, a configuração e a internet.
 function world(on: On, opts: WorldOptions = {}) {
@@ -52,6 +52,7 @@ function world(on: On, opts: WorldOptions = {}) {
   on('tool.register', () => ({ value: { tool: 'mcp__clawd__recarregar' } }))
   on('process.run', ($, e) => {
     envs.push(e.init?.env as Record<string, string> | undefined)
+    if (opts.proc) return { value: opts.proc(e.argv) }
     return { value: run(opts.statusline ?? STATUSLINE_OUT) }
   })
   on('http.fetch', ($, e) => {
@@ -529,4 +530,57 @@ test('limpeza do store: conversa velha sai, a atual e a recente ficam, e órfã 
   expect(Object.keys(sessions).sort()).toEqual(['atual', 'recente'])
   expect(sessions.atual).toBe(now) // a atual foi marcada como vista agora
   expect(sessions.recente).toBe(now - 2 * DAY)
+})
+
+// A ordem de procura do node: CLAWD_NODE, "node" no PATH, o "where node" (só no Windows, uma vez) e os caminhos de Mac/Linux.
+test('o node: CLAWD_NODE primeiro; se falha, o "node" do PATH; sem where fora do Windows', async ($, on) => {
+  const calls: string[] = []
+  const { clock } = world(on, {
+    env: { CLAWD_NODE: 'C:/meu/node.exe' },
+    proc: (argv) => {
+      calls.push(argv[0])
+      if (argv[0] === 'C:/meu/node.exe') throw new Error('sem esse')
+      return run(STATUSLINE_OUT)
+    },
+  })
+  await start($)
+  await clock.settle()
+  expect(calls.slice(0, 2)).toEqual(['C:/meu/node.exe', 'node'])
+  expect(calls).not.toContain('where')
+})
+
+test('o node: tudo falha fora do Windows, sobram os caminhos de Mac/Linux, sem where', async ($, on) => {
+  const calls: string[] = []
+  const { clock } = world(on, {
+    proc: (argv) => {
+      calls.push(argv[0])
+      if (argv[0] !== '/opt/homebrew/bin/node') throw new Error('sem esse')
+      return run(STATUSLINE_OUT)
+    },
+  })
+  await start($)
+  await clock.settle()
+  expect(calls.slice(0, 3)).toEqual(['node', '/usr/local/bin/node', '/opt/homebrew/bin/node'])
+  expect(calls).not.toContain('where')
+})
+
+test('o node no Windows: PATH falha, o "where node" roda uma vez e o resultado fica guardado', async ($, on) => {
+  const calls: string[] = []
+  const { clock } = world(on, {
+    env: { OS: 'Windows_NT' },
+    proc: (argv) => {
+      calls.push(argv[0])
+      if (argv[0] === 'where') return run('C:\\nvm4w\\nodejs\\node.exe\r\nD:\\outro\\node.exe\r\n')
+      if (argv[0] !== 'C:/nvm4w/nodejs/node.exe') throw new Error('sem esse')
+      return run(STATUSLINE_OUT)
+    },
+  })
+  await start($)
+  await clock.settle()
+  expect(calls.slice(0, 3)).toEqual(['node', 'where', 'C:/nvm4w/nodejs/node.exe'])
+  const ui = await mountBand($, false)
+  await clock.advance(21_000) // a statusline refaz de tempos em tempos
+  await ui.unmount()
+  expect(calls.filter((c) => c === 'where')).toHaveLength(1)
+  expect(calls.filter((c) => c === 'C:/nvm4w/nodejs/node.exe').length).toBeGreaterThan(1)
 })
