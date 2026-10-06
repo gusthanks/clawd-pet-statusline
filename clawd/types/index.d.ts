@@ -29,6 +29,7 @@ declare module 'claude-code' {
       scene: SavedScene | null
       running: Record<string, string>
       compacting: boolean
+      asking: boolean
       taps: number
     }
   }

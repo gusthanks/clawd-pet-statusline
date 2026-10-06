@@ -7,7 +7,7 @@ import type { Ran } from './git'
 import { BOX_W, CELL, CH_PX, LANE_GAP_CH, LANE_MIN_CH, LANE_MIN_H, LANE_W, laneSvg, LINE_PX, PAD, PARK_PX, SVG_SAFE, wideFits } from './lane'
 import { LIMITS_BACKOFF_MS, LIMITS_EVERY_MS, LIMITS_FRESH_MS, USAGE_URL, windowOf } from './limits'
 import type { Window } from './limits'
-import { activityFor, ALT, BREAK_GAP_S, buildScene, FIREWORKS_S, OOPS_S, PARTY_S, PAUSE_EVERY_S, PAUSE_S, posAt, SLEEP_NIGHT_S, SLEEP_S, STREAK_S } from './scenes'
+import { activityFor, ALT, ASK_S, BREAK_GAP_S, buildScene, FIREWORKS_S, OOPS_S, PARTY_S, PAUSE_EVERY_S, PAUSE_S, posAt, SLEEP_NIGHT_S, SLEEP_S, STREAK_S } from './scenes'
 import type { Flags, SceneKind, Spec } from './scenes'
 import { parseAnsi, prettyModel } from './statusline'
 import { clawdSpan, parseTap, TAP_COMBO_MS, TAP_COMBO_N, TAP_KEY, TAP_LOG_MAX, tapScene } from './tapinha'
@@ -45,6 +45,8 @@ const savedScene = atom({ plugin: 'clawd', key: 'scene' } as const, null as Save
 // Os ajudantes rodando (id -> tipo), guardados para um recarregamento não perdê-los.
 const savedRunning = atom({ plugin: 'clawd', key: 'running' } as const, {} as Record<string, string>)
 const compacting = atom({ plugin: 'clawd', key: 'compacting' } as const, false)
+// O Claude parou esperando o seu sim numa permissão: o Clawd larga o laptop e chama você.
+const asking = atom({ plugin: 'clawd', key: 'asking' } as const, false)
 // Quantos tapinhas acertaram o Clawd. O valor não importa: a faixa lê o número só para se redesenhar na hora.
 const taps = atom({ plugin: 'clawd', key: 'taps' } as const, 0)
 
@@ -534,6 +536,10 @@ let nowHour = 12
 let streakStartAt = -1
 let lastPauseAt = -Infinity
 let fireworksUntilAt = -1
+let askedAt = -1 // quando o pedido de permissão chegou (-1: nenhum esperando)
+let askTool = '' // a ferramenta que pediu ('' quando só o aviso chegou e não se sabe qual)
+let lastRequestAt = -Infinity // o último PermissionRequest, para o aviso de reserva não repetir
+const NOTIFY_AFTER_MS = 30_000
 let ultraSession = false // o ultracode ligado para a conversa inteira
 let ultraTurn = false
 let ultraOn = false
@@ -617,6 +623,33 @@ async function syncHelpers($: EngineInterface) {
   await setHelpers($)
 }
 
+// O Claude está esperando a sua permissão: o Clawd chama você. Só o agente principal chama.
+async function startAsking($: EngineInterface, tool: string) {
+  const now = await $.clock.now()
+  markActivity(now)
+  askTool = tool
+  if (askedAt >= 0) {
+    askedAt = now // outro pedido enquanto o anterior esperava: só renova o prazo, sem gravar à toa
+    return
+  }
+  askedAt = now
+  await update($, asking, () => true)
+}
+
+async function stopAsking($: EngineInterface) {
+  if (askedAt < 0) return
+  askedAt = -1
+  askTool = ''
+  await update($, asking, () => false)
+}
+
+// Uma ferramenta do agente principal terminou: se era a que esperava (ou começou depois do pedido,
+// ou não se sabe qual esperava), a permissão se resolveu.
+async function toolFinished($: EngineInterface, tool: string, startedAt: number) {
+  if (askedAt < 0) return
+  if (askTool === '' || tool === askTool || startedAt >= askedAt) await stopAsking($)
+}
+
 async function celebrate($: EngineInterface) {
   fireworksUntilAt = (await $.clock.now()) + FIREWORKS_S * 1000
   await update($, fireworks, () => true)
@@ -647,6 +680,7 @@ async function stepClock($: EngineInterface) {
       await setMood($, 'pause', PAUSE_S)
     } else if (now - Math.max(lastActiveAt, lastTapAt) >= sleepAfter) await setMood($, 'sleep')
   }
+  if (askedAt >= 0 && now - askedAt >= ASK_S * 1000) await stopAsking($) // ninguém respondeu: volta ao normal
   if (fireworksUntilAt >= 0 && now >= fireworksUntilAt) {
     fireworksUntilAt = -1
     await update($, fireworks, () => false)
@@ -762,6 +796,10 @@ export const register: Register = on => {
     await update($, activity, () => '' as Activity) // um recarregamento não deixa acessório velho
     await update($, fireworks, () => false)
     await update($, compacting, () => false)
+    askedAt = -1
+    askTool = ''
+    lastRequestAt = -Infinity
+    await update($, asking, () => false)
     // a aura herda o estado de antes do recarregamento; o próximo fim de turno (classic.Stop)
     // confirma pelo que está mesmo rodando em segundo plano
     ultraOn = await read($, ultra)
@@ -814,6 +852,7 @@ export const register: Register = on => {
       preocupado: worried,
       ferramenta: doing,
       cena: scene?.spec.kind ?? null,
+      chamando: askedAt >= 0,
       reacao: scene?.spec.intro[0]?.pose.fx ?? null,
       toques: tapLog.slice(),
       clima: weatherOff ? null : await read($, weather),
@@ -831,11 +870,18 @@ export const register: Register = on => {
   })
 
   on('tool.call', async ($, e, next) => {
+    const startedAt = await $.clock.now()
     if (!e.agentId) {
-      markActivity(await $.clock.now())
+      markActivity(startedAt)
       wantActivity = activityFor(e.tool)
-    } else lastSeen.set(e.agentId, await $.clock.now())
-    const result = await next(e)
+    } else lastSeen.set(e.agentId, startedAt)
+    let result: Awaited<ReturnType<typeof next>>
+    try {
+      result = await next(e) // a espera pela permissão acontece aqui dentro
+    } finally {
+      // a ferramenta acabou (rodou, foi negada ou deu erro): se o Clawd estava chamando você, a espera acabou
+      if (!e.agentId) await toolFinished($, e.tool, startedAt).catch(() => undefined)
+    }
     try {
       const ran = result as unknown as Ran
       // um workflow lançado: o modo equipe (ultracode) acende até ele terminar
@@ -860,6 +906,7 @@ export const register: Register = on => {
   // a vez, e só aí conta). Subagentes não disparam turn.start.
   on('turn.start', async ($, e, next) => {
     working = true
+    await stopAsking($).catch(() => undefined)
     if (e.text) promptText = e.text
     markActivity(await $.clock.now())
     if (current !== 'idle') await setMood($, 'idle')
@@ -870,6 +917,7 @@ export const register: Register = on => {
   // O texto do pedido chega aqui primeiro (o aviso de ultracode vem depois, com o turno).
   on('prompt.submit', async ($, e, next) => {
     promptText = e.text
+    await stopAsking($).catch(() => undefined)
     return next(e)
   })
 
@@ -907,6 +955,7 @@ export const register: Register = on => {
       return next(e)
     }
     working = false
+    await stopAsking($).catch(() => undefined)
     markActivity(await $.clock.now())
     if (ultraTurn) ultraGrace = true
     ultraTurn = false
@@ -926,6 +975,41 @@ export const register: Register = on => {
     running.set(e.agent_id, e.agent_type)
     lastSeen.set(e.agent_id, await $.clock.now())
     await setHelpers($)
+    return next(e)
+  })
+
+  // O Claude parou esperando o seu sim: o Clawd chama você. O pedido (PermissionRequest) é o sinal
+  // principal; o aviso "permission_prompt" (Notification) só vale de reserva, se o pedido não chegou.
+  // Os dois só do agente principal, e nenhum muda a decisão: o gancho só olha e passa adiante.
+  on('classic.PermissionRequest', async ($, e, next) => {
+    if (e.agent_id) return next(e)
+    try {
+      lastRequestAt = await $.clock.now()
+      await startAsking($, e.tool_name)
+    } catch {
+      // chamar é enfeite: nunca atrapalha a permissão
+    }
+    const answer = await next(e)
+    // um gancho já decidiu sem perguntar a você: não há ninguém esperando
+    if ((answer as { decision?: unknown }).decision !== undefined) await stopAsking($).catch(() => undefined)
+    return answer
+  })
+
+  on('classic.Notification', async ($, e, next) => {
+    if (e.notification_type === 'permission_prompt' && !e.agent_id) {
+      try {
+        const now = await $.clock.now()
+        if (askedAt < 0 && now - lastRequestAt > NOTIFY_AFTER_MS) await startAsking($, '')
+      } catch {
+        // idem
+      }
+    }
+    return next(e)
+  })
+
+  // Uma negação automática: ninguém espera mais por essa.
+  on('classic.PermissionDenied', async ($, e, next) => {
+    if (!e.agent_id) await stopAsking($).catch(() => undefined)
     return next(e)
   })
 
@@ -954,6 +1038,7 @@ export const register: Register = on => {
   // O fim de cada turno principal traz o esforço e o que segue rodando em segundo plano.
   on('classic.Stop', async ($, e, next) => {
     if (!e.agent_id) {
+      await stopAsking($).catch(() => undefined)
       await noteEffort($, e.effort?.level)
       await touchSession($)
       ultraWorkflow = (e.background_tasks ?? []).some(t => t.type === 'workflow')
@@ -994,7 +1079,8 @@ export const register: Register = on => {
 
     const stored = await read($, mood)
     const squeezing = await read($, compacting)
-    const kind: SceneKind = squeezing ? 'compact' : e.props.isWorking ? 'work' : stored
+    const calling = await read($, asking)
+    const kind: SceneKind = calling ? 'ask' : squeezing ? 'compact' : e.props.isWorking ? 'work' : stored
 
     if (e.surface !== 'desktop') {
       const { Box, Text } = $.ui.resolve(e)

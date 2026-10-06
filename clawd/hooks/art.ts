@@ -197,6 +197,10 @@ export const FX = {
   bang:
     `<g>${rect(29, 0, 5, 6, '#ffffff') + rect(31, 1, 1, 2, '#e5484d') + rect(31, 4, 1, 1, '#e5484d')}` +
     `<animate attributeName="opacity" values="1;0.35;1" dur="1s" ${LOOP}/></g>`,
+  // chamando você: um balãozinho com "?" ao lado da cabeça, do lado oposto ao do braço que acena
+  ask:
+    `<g>${rect(5, 0, 5, 7, '#ffffff') + rect(9, 7, 1, 1, '#ffffff') + cells([[6, 1], [7, 1], [8, 1], [8, 2], [7, 3], [7, 5]], '#e5484d')}` +
+    `<animate attributeName="opacity" values="1;0.35;1" dur="1s" ${LOOP}/></g>`,
   confetti: Array.from({ length: 14 }, (_, i) => {
     const x = -14 + i * 5
     const dur = 1.3 + (i % 4) * 0.25

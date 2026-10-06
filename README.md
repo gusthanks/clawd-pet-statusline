@@ -61,6 +61,7 @@ exactly what you see in the app.
 | <img src="docs/sheet/tired.svg" width="420"> | **Sweating** | The context is above 80%. |
 | <img src="docs/sheet/worried.svg" width="420"> | **Worried** (eyebrows + "!" bubble) | The 5-hour limit is above 90%. |
 | <img src="docs/sheet/pause.svg" width="420"> | **"pausa?"** (break?) | One hour of non-stop work: he stretches and suggests a break. |
+| <img src="docs/sheet/ask.svg" width="420"> | **Calling you** (waving + "?" bubble) | Claude is waiting for your permission: he puts the laptop away and waves until you answer (or 10 minutes pass). |
 
 ### Time and weather
 
@@ -235,6 +236,7 @@ o que aparece no app.
 | <img src="docs/sheet/tired.svg" width="420"> | **Suando** | O contexto passou de 80%. |
 | <img src="docs/sheet/worried.svg" width="420"> | **Preocupado** (sobrancelhas + balão "!") | O limite de 5 horas passou de 90%. |
 | <img src="docs/sheet/pause.svg" width="420"> | **"pausa?"** | Uma hora de trabalho sem parar: ele se espreguiça e sugere uma pausa. |
+| <img src="docs/sheet/ask.svg" width="420"> | **Chamando você** (acenando + balão "?") | O Claude está esperando a sua permissão: ele guarda o laptop e acena até você responder (ou até passarem 10 minutos). |
 
 ### Hora e clima
 

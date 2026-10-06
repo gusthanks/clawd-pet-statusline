@@ -627,3 +627,156 @@ test('só CLAWD_LIMITS=off: o clima ainda é consultado, os limites não', { tim
   expect(fetches.some(u => u.includes('anthropic'))).toBe(false)
   await ui.unmount()
 })
+
+// ---------- chamando você: o Claude espera o seu sim numa permissão ----------
+
+const ASK = { tool_name: 'Bash', tool_input: { command: 'ls' } }
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const alt = async (ui: any) => String((await ui.find({ type: 'Svg' }))?.props.alt)
+
+// o teste faz o papel do motor: os ganchos de baixo respondem como ele responderia
+function askWorld(on: On) {
+  const w = world(on)
+  on('classic.PermissionRequest', () => ({}))
+  on('classic.Notification', () => ({}))
+  on('classic.PermissionDenied', () => ({}))
+  on('classic.Stop', () => ({}))
+  on('turn.start', ($, e) => ({ turnId: e.turnId }))
+  on('turn.complete', () => ({ text: '' }))
+  on('prompt.submit', ($, e) => ({ text: e.text }))
+  on('tool.call', () => ({ result: { stdout: 'ok', stderr: '', interrupted: false } as never }))
+  return w
+}
+
+test('chamando: o pedido de permissão abre a cena ask; a ferramenta seguinte a fecha e ele volta a trabalhar', async ($, on) => {
+  const { clock } = askWorld(on)
+  await start($)
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const t = $ as any
+  await t.turn.start({ text: 'oi', turnId: 't1' })
+  const ui = await mountBand($, true)
+  await clock.advance(15_000) // ele já digita no laptop
+  expect(await alt(ui)).toContain('digitando')
+
+  await t.classic.PermissionRequest(ASK)
+  expect((await report($)).chamando).toBe(true)
+  expect(await alt(ui)).toContain('chamando')
+  expect((await report($)).cena).toBe('ask')
+  // laptop guardado, de frente, braço acenando e o balão "?"
+  const source = String((await ui.find({ type: 'Svg' }))?.props.source)
+  expect(source).toContain('#e5484d')
+  await clock.advance(2_000)
+  expect(await alt(ui)).toContain('chamando')
+
+  // você disse sim: a ferramenta roda e acaba
+  await t.tool.call({ tool: 'Bash', command: 'ls' })
+  expect((await report($)).chamando).toBe(false)
+  expect(await alt(ui)).toContain('digitando')
+  await ui.unmount()
+})
+
+test('chamando: só o agente principal chama; ajudante e o aviso de outro tipo não', async ($, on) => {
+  askWorld(on)
+  await start($)
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const t = $ as any
+  await t.classic.PermissionRequest({ ...ASK, agent_id: 'ajudante-1', agent_type: 'general-purpose' })
+  expect((await report($)).chamando).toBe(false)
+  await t.classic.Notification({ message: 'x', notification_type: 'permission_prompt', agent_id: 'ajudante-1' })
+  expect((await report($)).chamando).toBe(false)
+  await t.classic.Notification({ message: 'x', notification_type: 'idle_prompt' })
+  expect((await report($)).chamando).toBe(false)
+  // uma ferramenta do ajudante acabando também não fecha o chamado do principal
+  await t.classic.PermissionRequest(ASK)
+  expect((await report($)).chamando).toBe(true)
+  await t.tool.call({ tool: 'Bash', command: 'ls', agentId: 'ajudante-1' })
+  expect((await report($)).chamando).toBe(true)
+})
+
+test('chamando: sem resposta nenhuma, expira em 10 minutos e volta ao normal', { timeout: 60000 }, async ($, on) => {
+  const { clock } = askWorld(on)
+  await start($)
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const t = $ as any
+  await t.classic.PermissionRequest(ASK)
+  await clock.advance(9 * 60_000)
+  expect((await report($)).chamando).toBe(true)
+  await clock.advance(61_000)
+  expect((await report($)).chamando).toBe(false)
+  const ui = await mountBand($, false)
+  expect(await alt(ui)).not.toContain('chamando')
+  await ui.unmount()
+})
+
+test('chamando: prompt novo, fim do turno, negação automática e Stop também encerram', async ($, on) => {
+  askWorld(on)
+  await start($)
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const t = $ as any
+  const ends: [string, () => Promise<unknown>][] = [
+    ['prompt.submit', () => t.prompt.submit({ text: 'oi' })],
+    ['turn.complete', () => t.turn.complete({ answer: 'ok', durationMs: 5, isAborted: false, turnId: 't', reason: 'aborted' })],
+    ['PermissionDenied', () => t.classic.PermissionDenied({ tool_name: 'Bash', tool_input: {}, tool_use_id: 'u', reason: 'x' })],
+    ['Stop', () => t.classic.Stop({ stop_hook_active: false })],
+  ]
+  for (const [name, end] of ends) {
+    await t.classic.PermissionRequest(ASK)
+    expect((await report($)).chamando, name + ': abriu').toBe(true)
+    await end()
+    expect((await report($)).chamando, name + ': fechou').toBe(false)
+  }
+})
+
+test('chamando: o aviso permission_prompt serve de reserva, mas não reabre depois de um pedido resolvido', async ($, on) => {
+  const { clock } = askWorld(on)
+  await start($)
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const t = $ as any
+  // sem PermissionRequest: o aviso abre; qualquer ferramenta principal que acabe fecha
+  await t.classic.Notification({ message: 'Claude needs your permission to use Bash', notification_type: 'permission_prompt' })
+  expect((await report($)).chamando).toBe(true)
+  await t.tool.call({ tool: 'Read', file_path: 'x' })
+  expect((await report($)).chamando).toBe(false)
+
+  // com o pedido chegando antes, o aviso (atrasado) do mesmo pedido não o reabre
+  await clock.advance(60_000)
+  await t.classic.PermissionRequest(ASK)
+  await t.classic.Notification({ message: 'x', notification_type: 'permission_prompt' })
+  await t.tool.call({ tool: 'Bash', command: 'ls' })
+  await t.classic.Notification({ message: 'x', notification_type: 'permission_prompt' })
+  expect((await report($)).chamando).toBe(false)
+})
+
+test('chamando: um gancho que decide sozinho (decision) não deixa ele chamando ninguém', async ($, on) => {
+  world(on)
+  on('classic.PermissionRequest', () => ({ decision: { behavior: 'allow' as const } }))
+  await start($)
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  await ($ as any).classic.PermissionRequest(ASK)
+  expect((await report($)).chamando).toBe(false)
+})
+
+test('chamando: o tapinha mostra a reação e ele volta a chamar', { timeout: 60000 }, async ($, on) => {
+  const { clock } = askWorld(on)
+  await start($)
+  const ui = await mountBand($, true)
+  await clock.advance(15_000)
+  await ui.resize({ columns: 60, rows: 3 })
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  await ($ as any).classic.PermissionRequest(ASK)
+  expect(await alt(ui)).toContain('chamando') // a faixa se redesenhou
+  expect((await report($)).cena).toBe('ask')
+
+  await ui.pointer(down(56))
+  let r = await report($)
+  expect(r.reacao).toBe('pow')
+  expect(r.cena).toBe('ask')
+  expect(r.chamando).toBe(true)
+
+  await clock.advance(1_500) // a reação acabou: ele continua chamando
+  r = await report($)
+  expect(r.cena).toBe('ask')
+  expect(r.chamando).toBe(true)
+  expect(await alt(ui)).toContain('chamando')
+  await ui.unmount()
+})

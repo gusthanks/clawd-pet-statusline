@@ -5,7 +5,7 @@ import { LAPTOP_FPS, LAPTOP_SEQ } from './laptop'
 // As cenas do Clawd: o que ele faz em cada humor, passo a passo, e quanto tempo cada coisa dura.
 // Tudo aqui é conta pura (sem $): quem guarda a cena atual e decide o humor é o register.tsx.
 
-export type SceneKind = ClawdMood | 'work' | 'compact'
+export type SceneKind = ClawdMood | 'work' | 'compact' | 'ask'
 
 // Quanto tempo cada reação dura, em segundos, e quando ele cochila.
 export const PARTY_S = 5
@@ -13,6 +13,8 @@ export const OOPS_S = 4
 export const SLEEP_S = 10 * 60
 export const SLEEP_NIGHT_S = 3 * 60 // de madrugada ele cochila mais cedo
 export const FIREWORKS_S = 7
+// Chamando o Gus: se a permissão nunca se resolver (nenhum sinal chega), ele desiste depois disto.
+export const ASK_S = 10 * 60
 
 // A pausa: depois de 1 hora de trabalho seguido (sem 10 minutos de folga), ele
 // se espreguiça e levanta a plaquinha; no máximo a cada 20 minutos.
@@ -143,6 +145,9 @@ function buildSceneSteps(kind: SceneKind, from: number, laptopOpen: boolean, tra
       const run = from < 0.98 ? [walk(from, 1, RUN_PX, travel)] : []
       return { kind, intro: [...outro, ...run], loop: [stand(1, 1.2, { fx: 'press', look: -1, motion: 'still' })], laptopAt: Infinity }
     }
+    case 'ask':
+      // o claude parou esperando o seu sim: guarda o laptop, vira de frente e acena sem parar, com o balão "?"
+      return { kind, intro: outro, loop: [stand(from, 1.2, { eyes: 'wide', motion: 'still', wave: true, fx: 'ask', look: 0 })], laptopAt: Infinity }
     case 'pause':
       // espreguiça e levanta a plaquinha "pausa?"
       return {
@@ -188,6 +193,7 @@ export const ALT: Record<SceneKind, string> = {
   sleep: 'Clawd dormindo',
   pause: 'Clawd sugerindo uma pausa',
   compact: 'Clawd compactando o contexto',
+  ask: 'Clawd chamando você: o Claude espera sua permissão',
 }
 
 // O acessório que ele usa digitando, pela ferramenta que o agente principal está usando.

@@ -8,6 +8,7 @@ seguem o [Versionamento Semântico](https://semver.org/lang/pt-BR/).
 
 ### Adicionado
 
+- O Clawd chama você quando o Claude para esperando o seu "sim" numa permissão: guarda o laptop, vira de frente, acena e mostra um balão "?" até a permissão se resolver (a ferramenta seguinte termina, você manda outro pedido ou o turno acaba) ou até passarem 10 minutos. Só vale para o agente principal; um tapinha mostra a reação normal e ele volta a chamar. Usa `classic.PermissionRequest` (e `classic.Notification` com `permission_prompt` de reserva) e só observa: nunca muda a decisão.
 - `CLAWD_WEATHER=off` e `CLAWD_LIMITS=off` (também `0` e `false`): desligam, cada uma, as chamadas à internet do clima (IP e Open-Meteo) e dos limites (api.anthropic.com). Com `off` não sai nenhuma requisição.
 - `CLAWD_NODE`: caminho do Node que roda a statusline. A procura agora é CLAWD_NODE, `node` do PATH, `where node` (só no Windows, uma vez) e os caminhos de Mac/Linux; o caminho fixo da máquina do autor saiu do código.
 - `CLAWD_DEBUG`: com ela definida, o registro dos cliques é gravado no store (sem ela, fica só em memória). O registro de tamanhos da faixa (`renderLog`) foi removido.

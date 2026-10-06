@@ -41,6 +41,7 @@ function world(on: On, o: Opts = {}) {
   on('prompt.attachment', ($, e) => ({ text: e.text }))
   on('classic.SubagentStart', () => ({}))
   on('classic.Stop', () => ({}))
+  on('classic.PermissionRequest', () => ({}))
   on('agent.list', () => ({ value: [] }))
   on('tool.call', ($, e) => {
     if (e.tool === 'Edit') return { result: { structuredPatch: [{ lines: ['+a', '-b'] }] } as never }
@@ -237,5 +238,20 @@ test('dizzy', T, async ($, on) => {
     await c.advance(300)
   }
   await print(ui, 'dizzy')
+  await ui.unmount()
+})
+
+test('ask', T, async ($, on) => {
+  const c = world(on)
+  await begin($, c)
+  await ($ as Any).turn.start({ text: 'oi', turnId: 't' })
+  await typing($, c, '_ask-antes') // trabalhando, no laço de digitar
+  // o Claude para esperando a permissão: ele guarda o laptop, vira de frente e acena com o balão "?"
+  await ($ as Any).classic.PermissionRequest({ tool_name: 'Bash', tool_input: { command: 'ls' } })
+  let ui = await mountBand($, true)
+  await ui.unmount()
+  await c.advance(3_000)
+  ui = await mountBand($, true)
+  await print(ui, 'ask')
   await ui.unmount()
 })
