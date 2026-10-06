@@ -57,7 +57,7 @@ o que aparece no app.
 |---|---|---|
 | <img src="docs/sheet/morning.svg" width="420"> | **Cafezinho** | Das 6h às 11h, parado. |
 | <img src="docs/sheet/night.svg" width="420"> | **Madrugada** | Das 0h às 5h: boceja e dorme mais cedo. |
-| <img src="docs/sheet/rain.svg" width="420"> | **Guarda-chuva na mão** | Está chovendo onde você está (a pista ganha chuva). |
+| <img src="docs/sheet/rain.svg" width="420"> | **Guarda-chuva** | Está chovendo onde você está: ele usa o guarda-chuva na cabeça e a pista ganha chuva. |
 | <img src="docs/sheet/rain-work.svg" width="420"> | **Guarda-chuva grande** | Chovendo e trabalhando: cobre ele e o laptop. |
 
 ### Brincando com ele
@@ -176,7 +176,7 @@ where you are.
 He reacts to what's going on. He grabs the laptop when you send a message and wears glasses
 while Claude reads files. He picks up a magnifier for web searches and a hammer while editing.
 He sweats when the context is above 80%, gets worried when the 5-hour limit is above 90%, and
-holds an umbrella when it rains in your city. You also get fireworks on `git commit` or
+wears an umbrella hat when it rains in your city. You also get fireworks on `git commit` or
 `git push`, mini-Clawds for running subagents, a purple aura in ultracode, a press while the
 context is compacting, and a "pausa?" (break?) sign after an hour of non-stop work. Click him
 for a tap, or tap four times to make him dizzy. The table above shows every animation.

@@ -32,8 +32,6 @@ export const BODIES = {
   waveB: HEAD + rect(10, 11, 20, 4, ORANGE) + BELLY + rect(30, 8, 4, 3, ORANGE) + rect(32, 4, 3, 4, ORANGE),
   // espreguiçando: braços bem esticados
   stretch: HEAD + rect(14, 11, 16, 4, ORANGE) + BELLY + rect(10, 2, 4, 9, ORANGE) + rect(30, 2, 4, 9, ORANGE),
-  // segurando o guarda-chuva: o braço direito sobe e dobra por cima da cabeça até o cabo
-  hold: HEAD + rect(14, 11, 16, 4, ORANGE) + rect(10, 11, 4, 4, ORANGE) + BELLY + rect(30, 4, 4, 11, ORANGE) + rect(20, 4, 14, 2, ORANGE),
 }
 export type Body = keyof typeof BODIES
 export const BODY_KINDS = Object.keys(BODIES) as Body[]
@@ -106,10 +104,8 @@ export const FRONT_PROPS = {
   mouth: rect(20, 12, 4, 2, EYE),
   // cafezinho de manhã, na mão esquerda
   mug: rect(6, 10, 4, 5, '#eeeeee') + rect(7, 10, 2, 1, '#6f4e37') + rect(5, 11, 1, 2, '#cccccc') + steam(6.5, 0) + steam(7.5, 1),
-  // chovendo, com a mão ocupada (acenando, espreguiçando): o guarda-chuva preso na cabeça
+  // chovendo: o guarda-chuva preso na cabeça
   umbrella: umbrella(22, -2, 12, 3),
-  // chovendo, parado ou andando: ele segura o cabo (corpo "hold")
-  umbrellaHeld: umbrella(22, -3, 13, 1),
   // plaquinha de pausa, na mão esquerda
   sign:
     rect(-5, 0, 17, 7, '#b08d57') +

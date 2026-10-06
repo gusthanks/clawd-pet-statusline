@@ -842,18 +842,15 @@ function compile(spec: Spec, part: Step[], flags: Flags): Tracks {
     for (const k of EYE_KINDS) vis(`eyes:${k}`, t0, k === eyes)
     vis('prop:brows', t0, flags.worried)
     vis('prop:mug', t0, flags.morning && spec.kind === 'idle')
-    // chovendo: com a mão livre ele segura o guarda-chuva; acenando, pulando de alegria ou
-    // numa pose própria (espreguiçar), o guarda-chuva fica preso na cabeça (sem pulo: some)
-    const holds = flags.rain && motion !== 'jump' && !pose.wave && (pose.body ?? 'body') === 'body'
-    vis('prop:umbrella', t0, flags.rain && motion !== 'jump' && !holds)
-    vis('prop:umbrellaHeld', t0, holds)
+    // chovendo: o guarda-chuva fica preso na cabeça (no pulo de alegria ele some)
+    vis('prop:umbrella', t0, flags.rain && motion !== 'jump')
     vis('prop:sign', t0, !!pose.sign)
     for (const k of ['legsA', 'legsB', 'bob', 'lift'] as const) tr[k].push([t0, '0 0'])
 
     // o corpo: acenando, ou parado numa pose
     if (pose.wave) {
       for (let k = 0, t = t0; t < t1 - 0.01; k++, t += 0.2) showBody(t, k % 2 === 0 ? 'waveA' : 'waveB')
-    } else showBody(t0, holds ? 'hold' : pose.body ?? 'body')
+    } else showBody(t0, pose.body ?? 'body')
 
     if (pose.look !== undefined) tr.look.push([t0, `${pose.look} 0`])
     else if (motion === 'breathe' && s.d >= 2.5) {
