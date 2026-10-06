@@ -4,7 +4,7 @@
 
 <p align="center"><sub>example with made-up data</sub></p>
 
-**Version:** 0.1.0 · see the [CHANGELOG](CHANGELOG.md).
+**Version:** 0.2.0 · see the [CHANGELOG](CHANGELOG.md).
 
 **Clawd**, the little orange Claude Code crab, living animated in the band right above the
 message box of the app, next to a **statusline** that updates itself (folder, model, context,
@@ -184,7 +184,7 @@ License: [MIT](LICENSE).
 
 ## Português
 
-**Versão:** 0.1.0 · veja o [CHANGELOG](CHANGELOG.md).
+**Versão:** 0.2.0 · veja o [CHANGELOG](CHANGELOG.md).
 
 O **Clawd**, o caranguejinho laranja do Claude Code, morando animado na faixa logo acima da
 caixa de mensagem do app, ao lado de uma **statusline** que se atualiza sozinha (pasta,
