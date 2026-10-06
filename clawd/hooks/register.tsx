@@ -848,10 +848,9 @@ export const register: Register = on => {
       if (isLines(savedLines) && !nowLines.added && !nowLines.removed && (savedLines.added || savedLines.removed)) {
         await update($, lines, () => savedLines)
       }
-      if (!e.agentId) {
-        await touchSession($)
-        await pruneSessions($)
-      }
+      // o session.start não tem agentId: é sempre o agente principal
+      await touchSession($)
+      await pruneSessions($)
     } catch {
       // sem memória guardada, o esforço chega no fim do primeiro turno
     }

@@ -101,7 +101,7 @@ test('às 14h a pista não tem céu', async ($, on) => {
   expect(await skyAt($, on, 1_699_984_800_000)).not.toContain('id="sky"')
 })
 
-test('de madrugada com chuva: as estrelas somem e a lua fica', { timeout: 60000 }, async ($, on) => {
+test('de madrugada com chuva: as estrelas somem e a lua fica', { timeoutMs: 60000 }, async ($, on) => {
   const { clock } = world(on, { now: 1_699_938_000_000, store: { weather: { emoji: '🌧️', temp: 22, rain: true, at: 1_699_938_000_000 } } })
   await start($)
   const ui = await $.ui.mount({ plugin: 'clawd', surface: 'desktop', ...band(false) })
@@ -199,7 +199,7 @@ test('fogos só para commit ou push de verdade; Write novo conta todas as linhas
   expect((await report($)).fogos).toBe(true)
 })
 
-test('testes: passou vira "pass", erro vira "oops", outros comandos e subagentes não disparam', { timeout: 60000 }, async ($, on) => {
+test('testes: passou vira "pass", erro vira "oops", outros comandos e subagentes não disparam', { timeoutMs: 60000 }, async ($, on) => {
   const { clock } = world(on)
   on('tool.call', ($, e) => {
     const cmd = String((e as { command?: unknown }).command ?? '')
@@ -681,7 +681,7 @@ test('o node no Windows: PATH falha, o "where node" roda uma vez e o resultado f
 
 // Os botões de desligar a internet: com "off" (ou 0, false) não sai nenhuma requisição.
 for (const off of ['off', 'OFF', '0', 'false']) {
-  test(`CLAWD_WEATHER=${off} e CLAWD_LIMITS=${off}: nenhuma requisição, sem clima e sem preocupação`, { timeout: 60000 }, async ($, on) => {
+  test(`CLAWD_WEATHER=${off} e CLAWD_LIMITS=${off}: nenhuma requisição, sem clima e sem preocupação`, { timeoutMs: 60000 }, async ($, on) => {
     const { clock, fetches } = world(on, {
       env: { CLAWD_WEATHER: off, CLAWD_LIMITS: off },
       store: { weather: { emoji: '🌧️', temp: 22, rain: true, at: 1_700_000_000_000 } },
@@ -700,7 +700,7 @@ for (const off of ['off', 'OFF', '0', 'false']) {
   })
 }
 
-test('só CLAWD_WEATHER=off: os limites ainda são consultados, o clima não', { timeout: 60000 }, async ($, on) => {
+test('só CLAWD_WEATHER=off: os limites ainda são consultados, o clima não', { timeoutMs: 60000 }, async ($, on) => {
   const { clock, fetches } = world(on, { env: { CLAWD_WEATHER: 'off' } })
   await start($)
   const ui = await $.ui.mount({ plugin: 'clawd', surface: 'desktop', ...band(false) })
@@ -711,7 +711,7 @@ test('só CLAWD_WEATHER=off: os limites ainda são consultados, o clima não', {
   await ui.unmount()
 })
 
-test('só CLAWD_LIMITS=off: o clima ainda é consultado, os limites não', { timeout: 60000 }, async ($, on) => {
+test('só CLAWD_LIMITS=off: o clima ainda é consultado, os limites não', { timeoutMs: 60000 }, async ($, on) => {
   const { clock, fetches } = world(on, { env: { CLAWD_LIMITS: 'off' } })
   await start($)
   const ui = await $.ui.mount({ plugin: 'clawd', surface: 'desktop', ...band(false) })
@@ -787,7 +787,7 @@ test('chamando: só o agente principal chama; ajudante e o aviso de outro tipo n
   expect((await report($)).chamando).toBe(true)
 })
 
-test('chamando: sem resposta nenhuma, expira em 10 minutos e volta ao normal', { timeout: 60000 }, async ($, on) => {
+test('chamando: sem resposta nenhuma, expira em 10 minutos e volta ao normal', { timeoutMs: 60000 }, async ($, on) => {
   const { clock } = askWorld(on)
   await start($)
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -850,7 +850,7 @@ test('chamando: um gancho que decide sozinho (decision) não deixa ele chamando 
   expect((await report($)).chamando).toBe(false)
 })
 
-test('chamando: o tapinha mostra a reação e ele volta a chamar', { timeout: 60000 }, async ($, on) => {
+test('chamando: o tapinha mostra a reação e ele volta a chamar', { timeoutMs: 60000 }, async ($, on) => {
   const { clock } = askWorld(on)
   await start($)
   const ui = await mountBand($, true)
@@ -896,53 +896,53 @@ async function hatOn($: any, on: On, when: number, opts: WorldOptions = {}, work
   return src
 }
 
-test('chapéu: 24 e 25/12 o Clawd usa o gorro de Natal', { timeout: 60000 }, async ($, on) => {
+test('chapéu: 24 e 25/12 o Clawd usa o gorro de Natal', { timeoutMs: 60000 }, async ($, on) => {
   const src = await hatOn($, on, noonOn(2026, 12, 25))
   expect(src).toContain(SANTA_RED)
   expect(src).not.toContain(PARTY_VIOLET)
 })
 
-test('chapéu: 01/01 o Clawd usa o chapéu de festa, com confete', { timeout: 60000 }, async ($, on) => {
+test('chapéu: 01/01 o Clawd usa o chapéu de festa, com confete', { timeoutMs: 60000 }, async ($, on) => {
   const src = await hatOn($, on, noonOn(2027, 1, 1))
   expect(src).toContain(PARTY_VIOLET)
   expect(src).not.toContain(SANTA_RED)
 })
 
-test('chapéu: 31/12 também é chapéu de festa', { timeout: 60000 }, async ($, on) => {
+test('chapéu: 31/12 também é chapéu de festa', { timeoutMs: 60000 }, async ($, on) => {
   expect(await hatOn($, on, noonOn(2026, 12, 31))).toContain(PARTY_VIOLET)
 })
 
-test('chapéu: CLAWD_BIRTHDAY no dia vira chapéu de festa', { timeout: 60000 }, async ($, on) => {
+test('chapéu: CLAWD_BIRTHDAY no dia vira chapéu de festa', { timeoutMs: 60000 }, async ($, on) => {
   expect(await hatOn($, on, noonOn(2026, 10, 6), { env: { CLAWD_BIRTHDAY: '06-10' } })).toContain(PARTY_VIOLET)
 })
 
-test('chapéu: CLAWD_BIRTHDAY em outro dia, ou inválido, não põe chapéu', { timeout: 60000 }, async ($, on) => {
+test('chapéu: CLAWD_BIRTHDAY em outro dia, ou inválido, não põe chapéu', { timeoutMs: 60000 }, async ($, on) => {
   const src = await hatOn($, on, noonOn(2026, 10, 6), { env: { CLAWD_BIRTHDAY: '07-10' } })
   expect(src).not.toContain(PARTY_VIOLET)
   expect(src).not.toContain(SANTA_RED)
 })
 
-test('chapéu: CLAWD_BIRTHDAY inválido é ignorado', { timeout: 60000 }, async ($, on) => {
+test('chapéu: CLAWD_BIRTHDAY inválido é ignorado', { timeoutMs: 60000 }, async ($, on) => {
   expect(await hatOn($, on, noonOn(2026, 10, 6), { env: { CLAWD_BIRTHDAY: '31-02' } })).not.toContain(PARTY_VIOLET)
 })
 
-test('chapéu: aniversário em 25/12 vale o chapéu de festa, não o gorro', { timeout: 60000 }, async ($, on) => {
+test('chapéu: aniversário em 25/12 vale o chapéu de festa, não o gorro', { timeoutMs: 60000 }, async ($, on) => {
   const src = await hatOn($, on, noonOn(2026, 12, 25), { env: { CLAWD_BIRTHDAY: '25-12' } })
   expect(src).toContain(PARTY_VIOLET)
   expect(src).not.toContain(SANTA_RED)
 })
 
-test('chapéu: dia comum, nada na cabeça', { timeout: 60000 }, async ($, on) => {
+test('chapéu: dia comum, nada na cabeça', { timeoutMs: 60000 }, async ($, on) => {
   const src = await hatOn($, on, noonOn(2026, 10, 6))
   expect(src).not.toContain(SANTA_RED)
   expect(src).not.toContain(PARTY_VIOLET)
 })
 
-test('chapéu: trabalhando no laptop o chapéu continua na cabeça', { timeout: 60000 }, async ($, on) => {
+test('chapéu: trabalhando no laptop o chapéu continua na cabeça', { timeoutMs: 60000 }, async ($, on) => {
   expect(await hatOn($, on, noonOn(2026, 12, 25), {}, true)).toContain(SANTA_RED)
 })
 
-test('chapéu: chovendo, o guarda-chuva vence e o chapéu some', { timeout: 60000 }, async ($, on) => {
+test('chapéu: chovendo, o guarda-chuva vence e o chapéu some', { timeoutMs: 60000 }, async ($, on) => {
   // aqui o clima fica ligado: o mock responde com chuva
   const { clock } = world(on, { now: noonOn(2026, 12, 25) })
   await start($)
