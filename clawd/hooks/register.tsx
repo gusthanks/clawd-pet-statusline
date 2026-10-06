@@ -12,7 +12,7 @@ import type { Birthday, Flags, SceneKind, Spec } from './scenes'
 import { parseAnsi, prettyModel } from './statusline'
 import { clawdSpan, parseTap, TAP_COMBO_MS, TAP_COMBO_N, TAP_KEY, TAP_LOG_MAX, tapScene } from './tapinha'
 import type { Tap } from './tapinha'
-import { PLACE_EVERY_MS, PLACE_SERVICES, WEATHER_EVERY_MS, WEATHER_STALE_MS, weatherEmoji, weatherUrl, WET } from './weather'
+import { PLACE_EVERY_MS, PLACE_SERVICES, WEATHER_EVERY_MS, WEATHER_STALE_MS, weatherEmoji, weatherUrl, isRaining } from './weather'
 import type { Place } from './weather'
 
 // A faixa logo acima da caixa de mensagem (AbovePrompt): a statusline do usuário à
@@ -437,7 +437,7 @@ async function refreshWeather($: EngineInterface) {
       return
     }
     // precipitação = chuva + pancadas dos últimos 15 minutos
-    const rain = WET.has(code) || Number(cur.precipitation ?? 0) > 0
+    const rain = isRaining(code, Number(cur.precipitation ?? 0))
     const next: Weather = { emoji: weatherEmoji(code, cur.is_day === 1), temp: Math.round(temp), rain, at: await $.clock.now() }
     const prev = await read($, weather)
     const same = prev && prev.emoji === next.emoji && prev.temp === next.temp && prev.rain === next.rain

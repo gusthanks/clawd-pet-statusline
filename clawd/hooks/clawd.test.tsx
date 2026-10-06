@@ -1,6 +1,7 @@
 import { expect, mock, test } from 'claude-code/testing'
 import type { On } from 'claude-code'
 import { isTestCommand, testVerdict } from './git'
+import { isRaining } from './weather'
 
 const band = (isWorking: boolean) => ({
   component: 'AbovePrompt' as const,
@@ -979,4 +980,13 @@ test('ajudantes sem chuva: nenhum guarda-chuva nos minis', { timeoutMs: 60000 },
   const src = await helpersLane($, on, { env: { CLAWD_WEATHER: 'off' } }, 2)
   expect(src).not.toContain('mini-umbrella')
   expect(src).not.toContain(UMBRELLA_RED)
+})
+
+test('chuva: garoa só abre o guarda-chuva com precipitação de verdade', async () => {
+  expect(isRaining(55, 0.3)).toBe(false) // a leitura do centro de São Paulo em 06/10/2026, com o céu seco em Taboão
+  expect(isRaining(55, 0.5)).toBe(true)
+  expect(isRaining(61, 0)).toBe(true) // chuva fraca conta mesmo sem medida
+  expect(isRaining(80, 0)).toBe(true) // pancada
+  expect(isRaining(3, 0.2)).toBe(false) // nublado com um traço de precipitação não é chuva
+  expect(isRaining(0, 0)).toBe(false)
 })
