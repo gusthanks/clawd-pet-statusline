@@ -982,7 +982,19 @@ function laneSvg(spec: Spec, elapsed: number, flags: Flags, height: number, lane
     both('animateTransform', 'transform', discrete(pick(I), I.dur), discrete(pick(L), L.dur), I.dur, L.dur, elapsed, 'discrete')
   const glide = (attr: string, tag: 'animate' | 'animateTransform', fmt: (p: number) => string) =>
     both(tag, attr, linear(I.pos, I.dur, fmt), linear(L.pos, L.dur, fmt), I.dur, L.dur, elapsed, 'linear')
-  const layer = (key: string, art: string) => (used(key) ? `<g visibility="hidden">${vis(key)}${art}</g>` : '')
+  // O valor de cada trilha agora (no instante `elapsed`). Ele vai também como valor fixo do
+  // elemento: o app recria a imagem a cada redesenho e pode mostrar um quadro antes de as
+  // animações começarem; com isso esse quadro já é o certo (sem piscar vazio, sem cortar).
+  const nowOf = (pts: (t: Tracks) => Pt[] | undefined, fallback: string) => {
+    const inIntro = elapsed < I.dur || L.dur <= 0
+    const t = inIntro ? elapsed : (elapsed - I.dur) % L.dur
+    let v = fallback
+    for (const [at, val] of pts(inIntro ? I : L) ?? []) if (at <= t + 1e-6) v = val
+    return v
+  }
+  const visNow = (key: string) => nowOf(t => t.vis.get(key), 'hidden')
+  const moveNow = (pick: (t: Tracks) => Pt[]) => nowOf(pick, '0 0')
+  const layer = (key: string, art: string) => (used(key) ? `<g visibility="${visNow(key)}">${vis(key)}${art}</g>` : '')
 
   const frameIds = [...new Set([...spec.intro, ...spec.loop].flatMap(s => s.pose.laptop ?? []))]
   const laptopFrames = frameIds
@@ -990,12 +1002,13 @@ function laneSvg(spec: Spec, elapsed: number, flags: Flags, height: number, lane
     .join('')
 
   const front = used('front')
-    ? `<g visibility="hidden">${vis('front')}<g>${move(t => t.lift)}` +
-      `<g>${move(t => t.legsA)}${legs([14, 24])}</g><g>${move(t => t.legsB)}${legs([18, 28])}</g>` +
-      `<g>${move(t => t.bob)}` +
+    ? `<g visibility="${visNow('front')}">${vis('front')}<g transform="translate(${moveNow(t => t.lift)})">${move(t => t.lift)}` +
+      `<g transform="translate(${moveNow(t => t.legsA)})">${move(t => t.legsA)}${legs([14, 24])}</g>` +
+      `<g transform="translate(${moveNow(t => t.legsB)})">${move(t => t.legsB)}${legs([18, 28])}</g>` +
+      `<g transform="translate(${moveNow(t => t.bob)})">${move(t => t.bob)}` +
       BODY_KINDS.map(k => layer(`body:${k}`, BODIES[k])).join('') +
       FRONT_PROP_KINDS.map(k => layer(`prop:${k}`, phased(FRONT_PROPS[k], wall))).join('') +
-      `<g>${move(t => t.look)}${EYE_KINDS.map(k => layer(`eyes:${k}`, phased(EYES[k], wall))).join('')}</g>` +
+      `<g transform="translate(${moveNow(t => t.look)})">${move(t => t.look)}${EYE_KINDS.map(k => layer(`eyes:${k}`, phased(EYES[k], wall))).join('')}</g>` +
       `</g></g></g>`
     : ''
 
@@ -1021,17 +1034,21 @@ function laneSvg(spec: Spec, elapsed: number, flags: Flags, height: number, lane
     ? `<animateTransform attributeName="transform" type="translate" values="${round(lane.shift.dx)} 0;0 0" dur="0.6s" begin="${round(-lane.shift.ago)}s" fill="freeze"/>`
     : ''
   const top = round(height - BOX_H * CELL)
+  const p0 = posAt(spec, elapsed)
   return (
     `<svg xmlns="http://www.w3.org/2000/svg" width="100%" height="100%" shape-rendering="crispEdges">` +
     (flags.ultra ? phased(ultraLayer(height), wall) : '') +
     (flags.rain ? phased(rainLayer(height), wall) : '') +
     phased(helpersLayer(lane.helpers, lane.cap, BOX_W, BOX_H, CELL, height), wall) +
     `<svg x="${PAD}" y="0" width="100%" height="100%" overflow="visible">` +
-    `<svg x="0" y="${top}" width="${BOX_W * CELL}" height="${BOX_H * CELL}" viewBox="0 0 ${BOX_W} ${BOX_H}" overflow="visible">` +
+    // a imagem já nasce com o Clawd onde ele está agora: se o app mostrar um quadro antes de as
+    // animações começarem (ele recria a imagem a cada redesenho, como no tapinha), as duas partes
+    // da posição (a % da pista e a volta em células) continuam juntas e ele não aparece cortado
+    `<svg x="${round(p0 * 100)}%" y="${top}" width="${BOX_W * CELL}" height="${BOX_H * CELL}" viewBox="0 0 ${BOX_W} ${BOX_H}" overflow="visible">` +
     glide('x', 'animate', p => `${round(p * 100)}%`) +
-    `<g>${glide('transform', 'animateTransform', p => `${round(-p * comp)} 0`)}<g>${slide}` +
+    `<g transform="translate(${round(-p0 * comp)} 0)">${glide('transform', 'animateTransform', p => `${round(-p * comp)} 0`)}<g>${slide}` +
     aura +
-    (squashed ? `<g transform="translate(${SQUASH_X} ${BOX_H})"><g>${squashAnim}<g transform="translate(${-SQUASH_X} ${-BOX_H})">` : '') +
+    (squashed ? `<g transform="translate(${SQUASH_X} ${BOX_H})"><g transform="scale(${nowOf(t => t.squash, '1 1')})">${squashAnim}<g transform="translate(${-SQUASH_X} ${-BOX_H})">` : '') +
     laptopFrames +
     front +
     typing +
