@@ -8,6 +8,7 @@ seguem o [Versionamento Semântico](https://semver.org/lang/pt-BR/).
 
 ### Adicionado
 
+- `CLAWD_DEBUG`: com ela definida, o registro dos cliques é gravado no store (sem ela, fica só em memória). O registro de tamanhos da faixa (`renderLog`) foi removido.
 - Limpeza automática da memória do mod: o esforço e as linhas de conversas não vistas há mais de 7 dias (e as órfãs de versões antigas) são apagados ao começar uma conversa.
 
 ## 0.1.0

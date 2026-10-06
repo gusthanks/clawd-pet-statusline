@@ -18,7 +18,7 @@ const USAGE_JSON = JSON.stringify({
 
 const run = (stdout: string) => ({ exitCode: 0, stdout, stderr: '', isStdoutTruncated: false, isStderrTruncated: false })
 
-type WorldOptions = { sid?: () => string; settings?: () => Record<string, unknown>; store?: Record<string, unknown>; ownStore?: Map<string, unknown>; statusline?: string }
+type WorldOptions = { sid?: () => string; settings?: () => Record<string, unknown>; store?: Record<string, unknown>; ownStore?: Map<string, unknown>; statusline?: string; env?: Record<string, string> }
 
 // O teste faz o papel do motor: a sessão, a statusline, a configuração e a internet.
 function world(on: On, opts: WorldOptions = {}) {
@@ -40,6 +40,7 @@ function world(on: On, opts: WorldOptions = {}) {
     })
     on('store.keys', () => ({ value: [...m.keys()] }))
   } else mock.store(on, { effort: 'max', ...opts.store })
+  on('env.get', ($, e) => ({ value: opts.env?.[e.name] }))
   on('session.cwd', () => ({ value: 'C:/Users/voce' }))
   on('session.root', () => ({ value: 'C:/Users/voce' }))
   on('session.model', () => ({ value: 'claude-opus-5-5[1m]' }))
@@ -402,6 +403,33 @@ test('tapinha: clicar no Clawd (laptop aberto, no canto) o faz reagir; clicar lo
   expect(source).toContain('<polygon') // a estrela do tapinha
   expect(source).toContain('type="scale"') // o achatamento
   await ui.unmount()
+})
+
+async function tapAndLook($: any, on: On, env: Record<string, string>) {
+  const m = new Map<string, unknown>()
+  const { clock } = world(on, { ownStore: m, env })
+  await start($)
+  const ui = await mountBand($, true)
+  await clock.advance(15_000)
+  await ui.resize({ columns: 60, rows: 3 })
+  await ui.pointer(down(5))
+  const toques = (await report($)).toques.length // em memória, sempre
+  await ui.unmount()
+  return { m, toques }
+}
+
+test('tapinha: sem CLAWD_DEBUG o registro dos cliques fica só em memória', async ($, on) => {
+  const { m, toques } = await tapAndLook($, on, {})
+  expect(toques).toBeGreaterThan(0)
+  expect(m.has('tapLog')).toBe(false)
+  expect(m.has('renderLog')).toBe(false)
+})
+
+test('tapinha: com CLAWD_DEBUG o registro dos cliques vai para o store', async ($, on) => {
+  const { m, toques } = await tapAndLook($, on, { CLAWD_DEBUG: '1' })
+  expect(toques).toBeGreaterThan(0)
+  expect(m.has('tapLog')).toBe(true)
+  expect(m.has('renderLog')).toBe(false)
 })
 
 test('tapinha: só o botão esquerdo conta, e um recado malformado não derruba nada', async ($, on) => {

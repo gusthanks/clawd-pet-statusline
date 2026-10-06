@@ -422,7 +422,9 @@ let lastLane: { travel: number; parked: boolean; reach: number } | null = null
 let laneCols = 0 // colunas da pista, medidas pela área de clique (exatas)
 let tapTimes: number[] = [] // os tapinhas recentes, para o "tonto"
 let lastTapAt = -Infinity // depois de um tapinha ele fica acordado um tempo
-// Diagnóstico: os últimos cliques que chegaram (e se acertaram), guardados em $.store.
+// Diagnóstico: os últimos cliques que chegaram (e se acertaram). Ficam em memória; só vão
+// para o $.store se a variável CLAWD_DEBUG estiver definida (lida no session.start).
+let debugOn = false
 const tapLog: Record<string, unknown>[] = []
 
 // Um clique chegou da área invisível: se pegou o Clawd, ele reage.
@@ -430,7 +432,7 @@ async function onTap($: EngineInterface, tap: Tap) {
   const now = await $.clock.now()
   const keep = async () => {
     if (tapLog.length > TAP_LOG_MAX) tapLog.splice(0, tapLog.length - TAP_LOG_MAX)
-    await $.store.set('tapLog', tapLog).catch(() => undefined)
+    if (debugOn) await $.store.set('tapLog', tapLog).catch(() => undefined) // só com CLAWD_DEBUG
   }
   // o aviso de que a área existe e quanto mede (e o de que o mouse entrou): só anotados
   if (tap.type !== 'down') {
@@ -583,10 +585,6 @@ async function addLines($: EngineInterface, delta: Lines) {
 // Um passo do relógio, uma vez por segundo.
 async function stepClock($: EngineInterface) {
   const now = await $.clock.now()
-  if (renderLogDirty) {
-    renderLogDirty = false
-    await $.store.set('renderLog', renderLog).catch(() => undefined)
-  }
   const sleepAfter = (nowHour < 5 ? SLEEP_NIGHT_S : SLEEP_S) * 1000
   if (now - lastActiveAt >= BREAK_GAP_S * 1000) streakStartAt = -1 // ele fez uma pausa de verdade
   if ((current === 'party' || current === 'oops' || current === 'pause') && now >= untilAt) {
@@ -630,10 +628,6 @@ async function seedStatus($: EngineInterface) {
     // sem cópia guardada: espera a primeira leitura
   }
 }
-
-// Diagnóstico: os tamanhos que o app deu para a faixa (últimos 12 diferentes), guardados pelo tique.
-const renderLog: Record<string, unknown>[] = []
-let renderLogDirty = false
 
 function startBandPollers($: EngineInterface) {
   if (bandPollersOn) return
@@ -684,6 +678,8 @@ export const register: Register = on => {
     lastTapAt = -Infinity
     lastLane = null
     tapLog.length = 0
+    debugOn = !!(await $.env.get('CLAWD_DEBUG').catch(() => undefined))
+    await $.store.delete('renderLog').catch(() => undefined) // sobra de uma depuração antiga
     promptText = ''
     standingSeen = null
     // um recarregamento continua a cena de onde parou, em vez de mandar o Clawd pro canto
@@ -987,13 +983,6 @@ export const register: Register = on => {
     const travel = laneEst - PAD - (BOX_W + helpersZone(team, cap)) * CELL
     const parked = travel < PARK_PX
     const height = sideBySide ? Math.max(LANE_MIN_H, Math.round(rows.length * LINE_PX)) : LANE_MIN_H
-    const seen = { cols: e.props.bodyColumns, maxRows: e.props.maxRows, rows: rows.length, sideBySide, height, kind }
-    const last = renderLog[renderLog.length - 1]
-    if (!last || ['cols', 'maxRows', 'rows', 'sideBySide', 'height'].some(k => last[k] !== (seen as Record<string, unknown>)[k])) {
-      renderLog.push({ ...seen, at: now })
-      if (renderLog.length > 12) renderLog.splice(0, renderLog.length - 12)
-      renderLogDirty = true
-    }
 
     // a pista nunca passa de LANE_W: com isso o SVG fica sempre abaixo do limite do app
     const sceneTravel = Math.min(Math.max(80, travel), LANE_W - PAD - BOX_W * CELL)
