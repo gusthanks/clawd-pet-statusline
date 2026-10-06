@@ -68,7 +68,7 @@ exactly what you see in the app.
 | | What you see | When it happens |
 |---|---|---|
 | <img src="docs/sheet/morning.svg" width="420"> | **Coffee** | From 6am to 11am, idle. |
-| <img src="docs/sheet/night.svg" width="420"> | **Small hours** | From midnight to 5am: he yawns and falls asleep sooner. |
+| <img src="docs/sheet/night.svg" width="420"> | **Small hours** | From midnight to 5am: he yawns and falls asleep sooner, and the lane gets a small crescent moon and a few twinkling stars (the stars go away if it's raining, the moon stays). |
 | <img src="docs/sheet/rain.svg" width="420"> | **Umbrella** | It is raining where you are: he wears the umbrella on his head and the track gets rain. |
 | <img src="docs/sheet/rain-work.svg" width="420"> | **Big umbrella** | Raining and working: it covers him and the laptop. |
 
@@ -243,7 +243,7 @@ o que aparece no app.
 | | O que você vê | Quando acontece |
 |---|---|---|
 | <img src="docs/sheet/morning.svg" width="420"> | **Cafezinho** | Das 6h às 11h, parado. |
-| <img src="docs/sheet/night.svg" width="420"> | **Madrugada** | Das 0h às 5h: boceja e dorme mais cedo. |
+| <img src="docs/sheet/night.svg" width="420"> | **Madrugada** | Das 0h às 5h: boceja e dorme mais cedo, e a pista ganha uma lua minguante e poucas estrelas piscando (com chuva as estrelas somem, a lua fica). |
 | <img src="docs/sheet/rain.svg" width="420"> | **Guarda-chuva** | Está chovendo onde você está: ele usa o guarda-chuva na cabeça e a pista ganha chuva. |
 | <img src="docs/sheet/rain-work.svg" width="420"> | **Guarda-chuva grande** | Chovendo e trabalhando: cobre ele e o laptop. |
 

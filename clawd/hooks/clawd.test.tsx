@@ -18,11 +18,11 @@ const USAGE_JSON = JSON.stringify({
 
 const run = (stdout: string) => ({ exitCode: 0, stdout, stderr: '', isStdoutTruncated: false, isStderrTruncated: false })
 
-type WorldOptions = { sid?: () => string; settings?: () => Record<string, unknown>; store?: Record<string, unknown>; ownStore?: Map<string, unknown>; statusline?: string; env?: Record<string, string>; proc?: (argv: readonly string[]) => ReturnType<typeof run> }
+type WorldOptions = { now?: number; sid?: () => string; settings?: () => Record<string, unknown>; store?: Record<string, unknown>; ownStore?: Map<string, unknown>; statusline?: string; env?: Record<string, string>; proc?: (argv: readonly string[]) => ReturnType<typeof run> }
 
 // O teste faz o papel do motor: a sessão, a statusline, a configuração e a internet.
 function world(on: On, opts: WorldOptions = {}) {
-  const clock = mock.clock(on, { now: 1_700_000_000_000 })
+  const clock = mock.clock(on, { now: opts.now ?? 1_700_000_000_000 })
   const envs: (Record<string, string> | undefined)[] = []
   const fetches: string[] = []
   if (opts.ownStore) {
@@ -78,6 +78,38 @@ test('no desktop, a faixa desenha a pista do Clawd, parado e trabalhando', async
     expect(String(svg?.props.source)).toContain('<svg')
     await ui.unmount()
   }
+})
+
+// Um relógio por teste (o mock só aceita um). 1_699_938_000_000 = 2h em São Paulo; ..._984_800_000 = 14h.
+const skyAt = async ($: any, on: On, now: number, store?: Record<string, unknown>) => {
+  mock.clock(on, { now })
+  if (store) mock.store(on, store)
+  const ui = await $.ui.mount({ plugin: 'clawd', surface: 'desktop', ...band(false) })
+  const src = String((await ui.find({ type: 'Svg' }))?.props.source)
+  await ui.unmount()
+  return src
+}
+
+test('de madrugada (0h às 5h) a pista ganha o céu, com lua e estrelas', async ($, on) => {
+  const src = await skyAt($, on, 1_699_938_000_000)
+  expect(src).toContain('id="sky"')
+  expect(src).toContain('#fff3c4')
+})
+
+test('às 14h a pista não tem céu', async ($, on) => {
+  expect(await skyAt($, on, 1_699_984_800_000)).not.toContain('id="sky"')
+})
+
+test('de madrugada com chuva: as estrelas somem e a lua fica', { timeout: 60000 }, async ($, on) => {
+  const { clock } = world(on, { now: 1_699_938_000_000, store: { weather: { emoji: '🌧️', temp: 22, rain: true, at: 1_699_938_000_000 } } })
+  await start($)
+  const ui = await $.ui.mount({ plugin: 'clawd', surface: 'desktop', ...band(false) })
+  await clock.advance(5_000)
+  const src = String((await ui.find({ type: 'Svg' }))?.props.source)
+  await ui.unmount()
+  expect(src).toContain('#8ab4f8')
+  expect(src).toContain('id="sky"')
+  expect(src).not.toContain('#fff3c4')
 })
 
 test('no terminal, a faixa desenha o logo em blocos', async $ => {

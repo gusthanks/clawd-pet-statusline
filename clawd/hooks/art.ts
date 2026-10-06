@@ -279,6 +279,34 @@ export function rainLayer(height: number): string {
   }).join('')
 }
 
+// Céu da madrugada (0h às 5h): lua minguante no canto de cima à direita e poucas estrelas, tudo
+// em posição FIXA (x em %, nada de animar %). As estrelas piscam devagar só por opacity, com
+// begin negativo; com chuva elas somem e fica só a lua. Vai atrás do Clawd e da statusline.
+const STARS: [number, number, number][] = [
+  [7, 9, 1.4],
+  [21, 22, 1.2],
+  [37, 7, 1.4],
+  [52, 19, 1.2],
+  [66, 8, 1.4],
+  [80, 20, 1.2],
+]
+
+export function skyLayer(rain: boolean): string {
+  const stars = rain
+    ? ''
+    : STARS.map(([x, y, size], i) => {
+        const dur = round(3.2 + (i % 3) * 0.9)
+        return (
+          `<rect x="${x}%" y="${y}" width="${size}" height="${size}" fill="#fff3c4" opacity="0.8">` +
+          `<animate attributeName="opacity" values="0.8;0.25;0.8" dur="${dur}s" begin="${round(-((i * 1.1) % dur))}s" ${LOOP}/></rect>`
+        )
+      }).join('')
+  const moon =
+    `<svg x="94%" y="3" width="11" height="11" overflow="visible">` +
+    `<path d="M6.5 0.5 A5 5 0 1 0 10.5 8 A4 4 0 1 1 6.5 0.5Z" fill="#ffe9a8" opacity="0.9"/></svg>`
+  return `<g id="sky">${moon}${stars}</g>`
+}
+
 const SPARK = ['#ffd166', '#ef476f', '#06d6a0', '#7cc4ff', '#c4b5fd', '#ffb38a']
 
 // Fogos de artifício estourando em pontos da pista.
