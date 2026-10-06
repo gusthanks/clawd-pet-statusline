@@ -1024,8 +1024,10 @@ function laneSvg(spec: Spec, elapsed: number, flags: Flags, height: number, lane
     : ''
   const aura = layer('under:aura', phased(ULTRA_AURA, wall))
 
-  // A "trilha" começa PAD px depois do texto; a compensação faz o Clawd ir de PAD
-  // até o fim da pista, sem passar do começo nem do fim. Com ajudantes, o fim
+  // O Clawd anda em % da imagem inteira (como a chuva), mais uma volta em células: ele vai de
+  // PAD px depois do texto até o fim da pista, sem passar do começo nem do fim. Sem <svg>
+  // de trilha no meio: na troca de imagem o app às vezes mede esse <svg> interno com largura
+  // zero por um quadro, e o Clawd aparecia cortado na beira esquerda. Com ajudantes, o fim
   // recua a largura da baia deles: o Clawd nunca entra nela.
   // +1: o braço do aceno e o balanço da dança passam um pouco da caixa
   const comp = BOX_W + 1 + helpersZone(lane.helpers, lane.cap) + PAD / CELL
@@ -1040,13 +1042,12 @@ function laneSvg(spec: Spec, elapsed: number, flags: Flags, height: number, lane
     (flags.ultra ? phased(ultraLayer(height), wall) : '') +
     (flags.rain ? phased(rainLayer(height), wall) : '') +
     phased(helpersLayer(lane.helpers, lane.cap, BOX_W, BOX_H, CELL, height), wall) +
-    `<svg x="${PAD}" y="0" width="100%" height="100%" overflow="visible">` +
     // a imagem já nasce com o Clawd onde ele está agora: se o app mostrar um quadro antes de as
     // animações começarem (ele recria a imagem a cada redesenho, como no tapinha), as duas partes
     // da posição (a % da pista e a volta em células) continuam juntas e ele não aparece cortado
     `<svg x="${round(p0 * 100)}%" y="${top}" width="${BOX_W * CELL}" height="${BOX_H * CELL}" viewBox="0 0 ${BOX_W} ${BOX_H}" overflow="visible">` +
     glide('x', 'animate', p => `${round(p * 100)}%`) +
-    `<g transform="translate(${round(-p0 * comp)} 0)">${glide('transform', 'animateTransform', p => `${round(-p * comp)} 0`)}<g>${slide}` +
+    `<g transform="translate(${round(PAD / CELL - p0 * comp)} 0)">${glide('transform', 'animateTransform', p => `${round(PAD / CELL - p * comp)} 0`)}<g>${slide}` +
     aura +
     (squashed ? `<g transform="translate(${SQUASH_X} ${BOX_H})"><g transform="scale(${nowOf(t => t.squash, '1 1')})">${squashAnim}<g transform="translate(${-SQUASH_X} ${-BOX_H})">` : '') +
     laptopFrames +
@@ -1054,7 +1055,7 @@ function laneSvg(spec: Spec, elapsed: number, flags: Flags, height: number, lane
     typing +
     (squashed ? `</g></g></g>` : '') +
     fx +
-    `</g></g></svg></svg>` +
+    `</g></g></svg>` +
     (lane.fireworks !== null ? phased(fireworksLayer(height), lane.fireworks) : '') +
     `</svg>`
   )
