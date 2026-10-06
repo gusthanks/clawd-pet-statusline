@@ -1,5 +1,9 @@
 # clawd-pet-statusline
 
+<p align="center"><img src="docs/band.svg" width="920" alt="A faixa acima da caixa de mensagem: a statusline à esquerda e o Clawd de óculos digitando no laptop à direita"></p>
+
+<p align="center"><sub>exemplo com dados fictícios</sub></p>
+
 O **Clawd**, o caranguejinho laranja do Claude Code, morando animado na faixa logo acima da
 caixa de mensagem do app, ao lado de uma **statusline** que se atualiza sozinha (pasta,
 modelo, contexto, limites de uso e o clima de onde você está).
