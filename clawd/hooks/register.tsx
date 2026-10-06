@@ -961,7 +961,8 @@ function both(
 }
 
 // fireworks: segundos desde o commit (os fogos começam do zero), ou null sem fogos
-type Lane = { helpers: number; cap: number; fireworks: number | null; shift: { dx: number; ago: number } | null }
+// reach: quantos px ele anda da ponta direita até a ponta esquerda (estimativa conservadora)
+type Lane = { helpers: number; cap: number; fireworks: number | null; shift: { dx: number; ago: number } | null; reach: number }
 
 // As animações miúdas dos desenhos (piscar, chuva, aura, fumaça, mini-Clawds) recebem a
 // fase do relógio: um redesenho cria uma imagem nova, e sem isso todas voltariam ao começo.
@@ -1033,7 +1034,10 @@ function laneSvg(spec: Spec, elapsed: number, flags: Flags, height: number, lane
   // zero por um quadro, e o Clawd aparecia cortado na beira esquerda. Com ajudantes, o fim
   // recua a largura da baia deles: o Clawd nunca entra nela.
   // +1: o braço do aceno e o balanço da dança passam um pouco da caixa
-  const comp = BOX_W + 1 + helpersZone(lane.helpers, lane.cap) + PAD / CELL
+  // o canto direito da caixa encosta no fim da pista (ou na baia dos ajudantes); p = 0 fica reach px à esquerda
+  const right = BOX_W + 1 + helpersZone(lane.helpers, lane.cap)
+  const reachC = lane.reach / CELL
+  const at = (p: number) => `${round(-right - (1 - p) * reachC)} 0`
   // quando a baia dos ajudantes muda de tamanho, ele desliza até o lugar novo em vez de pular
   const slide = lane.shift
     ? `<animateTransform attributeName="transform" type="translate" values="${round(lane.shift.dx)} 0;0 0" dur="0.6s" begin="${round(-lane.shift.ago)}s" fill="freeze"/>`
@@ -1052,7 +1056,7 @@ function laneSvg(spec: Spec, elapsed: number, flags: Flags, height: number, lane
     // da imagem como a chuva: um <svg> interno, no quadro em que o app troca a imagem, às vezes
     // perde a posição e o Clawd aparecia cortado no começo da pista
     `<defs><g id="clawd-sprite"><g transform="scale(${CELL})">` +
-    `<g transform="translate(${round(PAD / CELL - p0 * comp)} 0)">${glide('transform', 'animateTransform', p => `${round(PAD / CELL - p * comp)} 0`)}<g>${slide}` +
+    `<g transform="translate(${at(p0)})">${glide('transform', 'animateTransform', at)}<g>${slide}` +
     aura +
     (squashed ? `<g transform="translate(${SQUASH_X} ${BOX_H})"><g transform="scale(${nowOf(t => t.squash, '1 1')})">${squashAnim}<g transform="translate(${-SQUASH_X} ${-BOX_H})">` : '') +
     laptopFrames +
@@ -1061,7 +1065,9 @@ function laneSvg(spec: Spec, elapsed: number, flags: Flags, height: number, lane
     (squashed ? `</g></g></g>` : '') +
     fx +
     `</g></g></g></g></defs>` +
-    `<use href="#clawd-sprite" x="${round(p0 * 100)}%" y="${top}">${glide('x', 'animate', p => `${round(p * 100)}%`)}</use>` +
+    // preso no canto direito por uma % FIXA (como a chuva): % animada sai zero no primeiro quadro de
+    // cada imagem nova, e era isso que jogava o Clawd cortado no começo da pista
+    `<use href="#clawd-sprite" x="100%" y="${top}"/>` +
     (lane.fireworks !== null ? phased(fireworksLayer(height), lane.fireworks) : '') +
     `</svg>`
   )
@@ -1108,7 +1114,8 @@ const TERMINAL_ART = [' ▐▛███▜▌ ', '▝▜█████▛▘', 
 // ter caixa nem botão: o app só deixa clicar em botão (que vira caixa) ou numa região dessas.
 
 // A pista que a última renderização desenhou: o que `buildScene` precisa para continuar a cena.
-let lastLane: { travel: number; parked: boolean } | null = null
+let lastLane: { travel: number; parked: boolean; reach: number } | null = null
+let laneCols = 0 // colunas da pista, medidas pela área de clique (exatas)
 let tapTimes: number[] = [] // os tapinhas recentes, para o "tonto"
 let lastTapAt = -Infinity // depois de um tapinha ele fica acordado um tempo
 // Diagnóstico: os últimos cliques que chegaram (e se acertaram), guardados em $.store.
@@ -1129,8 +1136,8 @@ function parseTap(data: unknown): Tap | null {
 
 // Onde o corpo dele está na pista, em colunas a partir da esquerda (de ... até), para comparar com o
 // clique. É a conta do desenho: a caixa começa PAD px depois do texto e anda p * (largura - PAD - caixa).
-function clawdSpan(p: number, cols: number, zone: number): [number, number] {
-  const left = PAD / CH_PX + p * (cols - ((BOX_W + 1 + zone) * CELL + PAD) / CH_PX)
+function clawdSpan(p: number, cols: number, zone: number, reach: number): [number, number] {
+  const left = cols - ((BOX_W + 1 + zone) * CELL + (1 - p) * reach) / CH_PX
   return [left + (TAP_FROM * CELL) / CH_PX - TAP_REACH, left + (BOX_W * CELL) / CH_PX + TAP_REACH]
 }
 
@@ -1167,6 +1174,7 @@ async function onTap($: EngineInterface, tap: Tap) {
   // o aviso de que a área existe e quanto mede (e o de que o mouse entrou): só anotados
   if (tap.type !== 'down') {
     tapLog.push({ at: now, type: tap.type, cols: tap.cols, rows: tap.rows })
+    if (tap.cols > 0) laneCols = tap.cols
     await keep()
     return
   }
@@ -1177,8 +1185,9 @@ async function onTap($: EngineInterface, tap: Tap) {
     await keep()
     return
   }
+  if (tap.cols > 0) laneCols = tap.cols
   const p = posAt(cur.spec, (now - cur.startedAt) / 1000)
-  const [from, to] = clawdSpan(p, tap.cols, laneZone)
+  const [from, to] = clawdSpan(p, tap.cols, laneZone, lane.reach)
   // sem a largura da área (ainda não medida), qualquer clique na pista vale
   const hit = tap.cols <= 0 || (tap.x + 0.5 >= from && tap.x + 0.5 <= to)
   const r1 = (v: number) => Math.round(v * 10) / 10
@@ -1725,10 +1734,15 @@ export const register: Register = on => {
     // a pista nunca passa de LANE_W: com isso o SVG fica sempre abaixo do limite do app
     const sceneTravel = Math.min(Math.max(80, travel), LANE_W - PAD - BOX_W * CELL)
     const sc = sceneFor(kind, now, sceneTravel, parked)
-    lastLane = { travel: sceneTravel, parked } // o tapinha continua a cena a partir daqui
+    // quanto ele anda, em px: pela largura medida da pista (se já houver) e com 10% de folga, para
+    // ele nunca passar da beira esquerda mesmo se a coluna for mais estreita que CH_PX
+    const laneW = laneCols > 0 ? laneCols * CH_PX : laneEst
+    const reach = Math.max(0, 0.9 * (laneW - PAD - (BOX_W + 1 + helpersZone(team, cap)) * CELL))
+    lastLane = { travel: sceneTravel, parked, reach } // o tapinha continua a cena a partir daqui
     const zone = helpersZone(team, cap)
     if (zone !== laneZone) {
-      zoneShift = { dx: posAt(sc.spec, (now - sc.startedAt) / 1000) * (zone - laneZone), at: now }
+      // preso pela direita: a baia crescer empurra ele inteiro para a esquerda; ele desliza até lá
+      zoneShift = { dx: zone - laneZone, at: now }
       laneZone = zone
     }
     const shift = zoneShift && now - zoneShift.at < 600 ? { dx: zoneShift.dx, ago: (now - zoneShift.at) / 1000 } : null
@@ -1743,9 +1757,9 @@ export const register: Register = on => {
     }
     const elapsed = (now - sc.startedAt) / 1000
     const boomAgo = !boom ? null : fireworksUntilAt >= 0 ? Math.max(0, (now - fireworksUntilAt) / 1000 + FIREWORKS_S) : now / 1000
-    let laneArt = laneSvg(sc.spec, elapsed, flags, height, { helpers: team, cap, fireworks: boomAgo, shift }, now / 1000)
+    let laneArt = laneSvg(sc.spec, elapsed, flags, height, { helpers: team, cap, fireworks: boomAgo, shift, reach }, now / 1000)
     // o app recusa SVG acima de 131072 caracteres: nesse caso extremo, sem fogos
-    if (laneArt.length > SVG_SAFE) laneArt = laneSvg(sc.spec, elapsed, flags, height, { helpers: team, cap, fireworks: null, shift }, now / 1000)
+    if (laneArt.length > SVG_SAFE) laneArt = laneSvg(sc.spec, elapsed, flags, height, { helpers: team, cap, fireworks: null, shift, reach }, now / 1000)
 
     const { Box, Text, Svg, Client } = $.ui.resolve(e)
     const text = rows.length
