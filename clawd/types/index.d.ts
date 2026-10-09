@@ -15,6 +15,16 @@ export type SavedScene = { startedAt: number; spec: unknown }
 // Linhas que eu acrescentei e tirei nesta conversa.
 export type Lines = { added: number; removed: number }
 
+// A fantasia de um ajudante (mini-Clawd), pela tarefa dele; '' é o mini sem fantasia.
+export type Costume = '' | 'piloto' | 'pirata' | 'detetive' | 'astronauta' | 'engenheiro' | 'pintor' | 'chef' | 'juiz'
+
+// Um ajudante na baia: quem é, a fantasia, o tom (0, 1 ou 2, pelo número dele) e, se terminou
+// bem, quando a festa começou (ele comemora um instante e sai).
+export type TeamMate = { id: string; costume: Costume; tone: number; doneAt?: number }
+
+// A fantasia e o tom de cada ajudante rodando, guardados para um recarregamento não trocá-los.
+export type Crew = Record<string, { costume: Costume; tone: number }>
+
 declare module 'claude-code' {
   interface PluginState {
     clawd: {
@@ -22,7 +32,8 @@ declare module 'claude-code' {
       status: StatusSpan[][]
       activity: Activity
       weather: Weather | null
-      helpers: number
+      team: TeamMate[]
+      crew: Crew
       fireworks: boolean
       ultra: boolean
       lines: Lines

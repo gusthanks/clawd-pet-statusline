@@ -1,10 +1,12 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, HttpInit, HttpResponse, Register } from 'claude-code'
-import type { Activity, ClawdMood, Lines, SavedScene, StatusSpan, Weather } from '../types'
+import type { Activity, ClawdMood, Costume, Crew, Lines, SavedScene, StatusSpan, TeamMate, Weather } from '../types'
 import { fitMinis, helpersZone, ORANGE } from './art'
+import { crewOf, PARTY_MS, teamOf } from './equipe'
+import { settleCostume } from './fantasias'
 import { changedLines, gitHappened, isLines, testVerdict } from './git'
 import type { Ran } from './git'
-import { BOX_W, CELL, CH_PX, LANE_GAP_CH, LANE_MIN_CH, LANE_MIN_H, LANE_W, laneSvg, LINE_PX, PAD, PARK_PX, SVG_SAFE, wideFits } from './lane'
+import { BOX_W, CELL, CH_PX, fitLane, LANE_GAP_CH, LANE_MIN_CH, LANE_MIN_H, LANE_W, LINE_PX, PAD, PARK_PX, wideFits } from './lane'
 import { LIMITS_BACKOFF_MS, LIMITS_EVERY_MS, LIMITS_FRESH_MS, USAGE_URL, windowOf } from './limits'
 import type { Window } from './limits'
 import { activityFor, ALT, ASK_S, BREAK_GAP_S, buildScene, FIREWORKS_S, hatFor, parseBirthday, OOPS_S, PARTY_S, PASS_S, PAUSE_EVERY_S, PAUSE_S, posAt, SLEEP_NIGHT_S, SLEEP_S, STREAK_S } from './scenes'
@@ -30,13 +32,17 @@ import type { Place } from './weather'
 //   weather.ts     os endereços do clima e do lugar; o código do tempo em emoji
 //   git.ts         as linhas mexidas (Edit/Write) e a detecção de commit e push
 //   tapinha.ts     o recado do clique, onde ele acerta o Clawd e a cena da reação
+//   fantasias.ts   as fantasias dos ajudantes e quem veste qual, pela tarefa
+//   equipe.ts      a baia dos ajudantes: o mini com a fantasia, a festa de quem terminou
 //   art.ts, laptop.ts  os desenhos
 
 const mood = atom({ plugin: 'clawd', key: 'mood' } as const, 'idle' as ClawdMood)
 const status = atom({ plugin: 'clawd', key: 'status' } as const, [] as StatusSpan[][])
 const activity = atom({ plugin: 'clawd', key: 'activity' } as const, '' as Activity)
 const weather = atom({ plugin: 'clawd', key: 'weather' } as const, null as Weather | null)
-const helpers = atom({ plugin: 'clawd', key: 'helpers' } as const, 0)
+// Os ajudantes na baia, na ordem em que chegaram: a fantasia, o tom e, de quem terminou bem, quando
+// a festa começou. (O atom 'helpers', só um número, ficou para trás: nada mais o lê nem grava.)
+const team = atom({ plugin: 'clawd', key: 'team' } as const, [] as TeamMate[])
 const fireworks = atom({ plugin: 'clawd', key: 'fireworks' } as const, false)
 const ultra = atom({ plugin: 'clawd', key: 'ultra' } as const, false)
 const lines = atom({ plugin: 'clawd', key: 'lines' } as const, { added: 0, removed: 0 } as Lines)
@@ -44,6 +50,8 @@ const lines = atom({ plugin: 'clawd', key: 'lines' } as const, { added: 0, remov
 const savedScene = atom({ plugin: 'clawd', key: 'scene' } as const, null as SavedScene | null)
 // Os ajudantes rodando (id -> tipo), guardados para um recarregamento não perdê-los.
 const savedRunning = atom({ plugin: 'clawd', key: 'running' } as const, {} as Record<string, string>)
+// A fantasia e o tom de cada um deles, guardados junto: um recarregamento não troca a fantasia de ninguém.
+const savedCrew = atom({ plugin: 'clawd', key: 'crew' } as const, {} as Crew)
 const compacting = atom({ plugin: 'clawd', key: 'compacting' } as const, false)
 // O Claude parou esperando o seu sim numa permissão: o Clawd larga o laptop e chama você.
 const asking = atom({ plugin: 'clawd', key: 'asking' } as const, false)
@@ -534,6 +542,49 @@ const running = new Map<string, string>()
 const ended = new Set<string>()
 const HELPERS_SYNC_MS = 2000
 
+// O que se sabe de cada ajudante, só em memória: o rótulo e o tipo (do agent.spawn ou da lista do
+// motor), o número dele no workflow, a primeira ferramenta, e a fantasia e o tom já decididos. A
+// ordem do Map é a ordem de chegada, que é a ordem na baia. Sai quando o ajudante sai.
+type Mate = { label?: string; type?: string; index?: number; firstTool?: string; costume?: Costume; tone?: number; order: number; seenAt?: number }
+const crew = new Map<string, Mate>()
+let arrivals = 0
+// Quem terminou bem e comemora na baia antes de sair: id -> quando a festa começou (null: ainda
+// não apareceu; o tique que a grava marca o começo, para ela aparecer inteira).
+const leaving = new Map<string, number | null>()
+// As gravações da equipe acontecem só no tique de 1 s e no sync de 2 s (e no início): os eventos
+// só marcam "sujo". Cada atom só é gravado quando a assinatura dele muda, no máximo ~1x/s. A
+// exceção é 'running' no fim de um ajudante (ver turn.complete): o desenho não o lê.
+let teamDirty = false
+let teamSig: string | null = null
+let runningSig: string | null = null
+let crewSig: string | null = null
+let teamWroteAt = -Infinity
+let flushing = false
+const TEAM_WRITE_MS = 900
+const ORPHAN_MS = 60_000 // anotado pelo agent.spawn e nunca visto rodando: esquece
+
+// O registro de um ajudante (criado na primeira vez, na ordem de chegada).
+function meet(id: string): Mate {
+  let m = crew.get(id)
+  if (!m) crew.set(id, (m = { order: ++arrivals }))
+  return m
+}
+
+// Esquece um ajudante que saiu (quem ainda comemora fica até a festa acabar).
+function forget(id: string) {
+  if (leaving.has(id)) return
+  crew.delete(id)
+  lastSeen.delete(id)
+}
+
+// A fantasia e o tom de um ajudante: a fantasia, uma vez decidida, nunca troca (ver settleCostume);
+// o tom vem do número dele no workflow ou, sem número, da ordem de chegada.
+function dress(m: Mate): { costume: Costume; tone: number } {
+  m.costume = settleCostume(m.costume, { label: m.label, type: m.type, firstTool: m.firstTool })
+  m.tone ??= (m.index ?? m.order) % 3
+  return { costume: m.costume, tone: m.tone }
+}
+
 // ---------- a cena atual ----------
 
 // A cena atual. Quando o humor muda, a cena nova começa de onde ele estava.
@@ -670,17 +721,65 @@ async function setUltra($: EngineInterface, on: boolean) {
   await update($, ultra, () => on)
 }
 
-let helpersShown = 0
+// Grava a baia (atom 'team'), os ajudantes rodando ('running') e as fantasias deles ('crew'), cada
+// um só quando a assinatura muda. Quem comemorou o bastante sai aqui. `force`: o início da conversa,
+// que grava na hora (um recarregamento não deixa a baia velha à mostra).
+async function flushTeam($: EngineInterface, force = false) {
+  if (flushing && !force) return // o tique e o sync no mesmo instante: um grava, o outro fica para o próximo
+  const mine = !flushing
+  flushing = true
+  try {
+    const now = await $.clock.now()
+    if (!force && !teamDirty && leaving.size === 0) return
+    if (!force && now - teamWroteAt < TEAM_WRITE_MS) return // gravou há pouco: o próximo tique grava
+    await writeTeam($, now)
+  } finally {
+    if (mine) flushing = false
+  }
+}
 
-async function setHelpers($: EngineInterface) {
-  const n = running.size
-  if (n === helpersShown) return
-  helpersShown = n
-  await update($, helpers, () => n)
+async function writeTeam($: EngineInterface, now: number) {
+  teamDirty = false
+  for (const [id, at] of leaving) {
+    if (at === null) leaving.set(id, now) // a festa começa agora, quando ela aparece
+    else if (now - at >= PARTY_MS) {
+      leaving.delete(id)
+      forget(id)
+    }
+  }
+  for (const id of running.keys()) meet(id)
+  const mates: TeamMate[] = []
+  for (const [id, m] of crew) {
+    const doneAt = leaving.get(id) ?? undefined
+    if (!running.has(id) && doneAt === undefined) continue
+    const look = dress(m)
+    mates.push(doneAt === undefined ? { id, ...look } : { id, ...look, doneAt })
+  }
+  let wrote = false
+  const sig = JSON.stringify(mates)
+  if (sig !== teamSig) {
+    teamSig = sig
+    wrote = true
+    await update($, team, () => mates)
+  }
   const keep = Object.fromEntries(running)
-  await update($, savedRunning, () => keep)
+  const keepSig = JSON.stringify(keep)
+  if (keepSig !== runningSig) {
+    runningSig = keepSig
+    wrote = true
+    await update($, savedRunning, () => keep)
+  }
+  const worn: Crew = {}
+  for (const m of mates) if (running.has(m.id)) worn[m.id] = { costume: m.costume, tone: m.tone }
+  const wornSig = JSON.stringify(worn)
+  if (wornSig !== crewSig) {
+    crewSig = wornSig
+    wrote = true
+    await update($, savedCrew, () => worn)
+  }
+  if (wrote) teamWroteAt = now
   // o ultracode continua aceso enquanto houver ajudantes de um turno ultracode
-  if (n === 0) ultraGrace = false
+  if (running.size === 0) ultraGrace = false
   await setUltra($, ultraWanted())
 }
 
@@ -692,25 +791,41 @@ async function syncHelpers($: EngineInterface) {
     for (const id of [...running.keys()]) {
       if (now - (lastSeen.get(id) ?? now) > HELPER_QUIET_MS) {
         running.delete(id)
-        lastSeen.delete(id)
+        forget(id)
+        teamDirty = true
       }
     }
     for (const a of await $.agent.list()) {
-      if (a.type === 'teammate') continue
+      if (a.type === 'teammate' || a.teammateId) continue // teammate com papel tem o papel no type
       const live = a.status === 'running' || a.status === 'pending'
       if (live && !ended.has(a.id)) {
+        if (!running.has(a.id)) teamDirty = true
         running.set(a.id, a.type)
         if (!lastSeen.has(a.id)) lastSeen.set(a.id, now)
+        // quem não passou pelo agent.spawn (um recarregamento, um skill em fork): o rótulo vem daqui
+        const m = meet(a.id)
+        m.type ??= a.type
+        if (m.label === undefined && a.description) {
+          m.label = a.description
+          teamDirty = true
+        }
       }
       if (!live) {
-        running.delete(a.id)
+        if (running.delete(a.id)) teamDirty = true
         ended.delete(a.id)
+        forget(a.id)
       }
+    }
+    // anotados pelo agent.spawn e nunca vistos rodando (ou que sumiram sem aviso): esquece
+    for (const [id, m] of crew) {
+      if (running.has(id) || leaving.has(id)) continue
+      m.seenAt ??= now
+      if (now - m.seenAt > ORPHAN_MS) crew.delete(id)
     }
   } catch {
     // sem a lista, ficam só os eventos
   }
-  await setHelpers($)
+  await flushTeam($)
 }
 
 // O Claude está esperando a sua permissão: o Clawd chama você. Só o agente principal chama.
@@ -803,6 +918,8 @@ async function stepClock($: EngineInterface) {
   }
   // o acessório (lupa, óculos, martelo) só do agente principal, gravado no máximo uma vez por segundo
   if (working && wantActivity !== doing) await setActivity($, wantActivity)
+  // a baia dos ajudantes: quem chegou, quem saiu, quem comemora
+  await flushTeam($)
 }
 
 // Os relógios (humor, ajudantes, statusline, limites, clima) só servem para desenhar a
@@ -889,16 +1006,26 @@ export const register: Register = on => {
     }
     running.clear()
     ended.clear()
+    crew.clear()
+    leaving.clear()
+    arrivals = 0
     try {
       const startedAt = await $.clock.now()
+      // a fantasia e o tom de cada um voltam junto (um 'crew' estragado vale como vazio)
+      const worn = crewOf(await read($, savedCrew))
       for (const [id, type] of Object.entries(await read($, savedRunning))) {
         running.set(id, type)
         lastSeen.set(id, startedAt)
+        const m = meet(id)
+        m.type = type
+        const w = worn[id]
+        if (w?.costume) m.costume = w.costume
+        if (w) m.tone = w.tone
       }
     } catch {
       // sem ajudantes guardados
     }
-    helpersShown = -1
+    teamSig = runningSig = crewSig = null
     wantActivity = ''
     await update($, mood, () => 'idle' as ClawdMood)
     await update($, activity, () => '' as Activity) // um recarregamento não deixa acessório velho
@@ -915,7 +1042,7 @@ export const register: Register = on => {
     // confirma pelo que está mesmo rodando em segundo plano
     ultraOn = await read($, ultra)
     ultraWorkflow = ultraOn
-    await setHelpers($)
+    await flushTeam($, true)
     await readStanding($)
     try {
       sessionKey = await $.session.id()
@@ -968,6 +1095,9 @@ export const register: Register = on => {
       clima: weatherOff ? null : await read($, weather),
       clima_nota: weatherNote,
       ajudantes: [...running.keys()],
+      equipe: [...crew]
+        .filter(([id]) => running.has(id) || leaving.has(id))
+        .map(([id, m]) => ({ id, fantasia: dress(m).costume, tom: dress(m).tone, rotulo: m.label ?? null, ...(leaving.has(id) ? { festa: true } : {}) })),
       linhas: await read($, lines),
       fogos: await read($, fireworks),
       teste: reactionNow || null,
@@ -985,7 +1115,16 @@ export const register: Register = on => {
     if (!e.agentId) {
       markActivity(startedAt)
       wantActivity = activityFor(e.tool)
-    } else lastSeen.set(e.agentId, startedAt)
+    } else {
+      lastSeen.set(e.agentId, startedAt)
+      // a primeira ferramenta de um ajudante é pista da fantasia (se o rótulo não disse nada); o
+      // ToolSearch só carrega ferramentas e não diz a tarefa: vale a que vem depois dele
+      const m = running.has(e.agentId) ? meet(e.agentId) : crew.get(e.agentId)
+      if (m && m.firstTool === undefined && e.tool !== 'ToolSearch') {
+        m.firstTool = e.tool
+        teamDirty = true
+      }
+    }
     let result: Awaited<ReturnType<typeof next>>
     try {
       result = await next(e) // a espera pela permissão acontece aqui dentro
@@ -1063,17 +1202,31 @@ export const register: Register = on => {
 
   on('turn.complete', async ($, e, next) => {
     if (e.agentId) {
-      // o fim de um ajudante: o motor avisa uma vez por execução, terminada, cancelada ou com erro
-      running.delete(e.agentId)
-      ended.add(e.agentId)
-      await setHelpers($)
+      // o fim de um ajudante: o motor avisa uma vez por execução, terminada, cancelada ou com erro.
+      // Terminou bem: comemora um instante na baia e só então sai. Senão, sai na hora, sem festa.
+      // Aqui só se marca e o tique grava a baia; só a cópia de quem roda é gravada aqui mesmo.
+      const id = e.agentId
+      const wasHere = running.delete(id)
+      ended.add(id)
+      if (running.size === 0) ultraGrace = false // o último do turno ultracode: a sobra acaba agora
+      if (wasHere && e.reason === 'answer' && bandPollersOn) leaving.set(id, null)
+      else forget(id)
+      teamDirty = true
+      // a cópia de quem roda é gravada já (um recarregamento antes do tique ressuscitaria quem
+      // acabou, e um de workflow só sairia em 15 min). O desenho não lê 'running': não pisca.
+      const keep = Object.fromEntries(running)
+      const keepSig = JSON.stringify(keep)
+      if (wasHere && keepSig !== runningSig) {
+        runningSig = keepSig
+        await update($, savedRunning, () => keep).catch(() => undefined)
+      }
       return next(e)
     }
     working = false
     await clearReaction($).catch(() => undefined) // o fim do turno tem a sua própria reação
     await stopAsking($).catch(() => undefined)
     markActivity(await $.clock.now())
-    if (ultraTurn) ultraGrace = true
+    if (ultraTurn && running.size > 0) ultraGrace = true // só se ficou ajudante trabalhando
     ultraTurn = false
     await setUltra($, ultraWanted())
     wantActivity = ''
@@ -1085,14 +1238,35 @@ export const register: Register = on => {
   })
 
   // Ajudantes: entra quando começa (inclusive os de workflow); sai no fim do turno dele, acima.
-  // O motor espera este gancho antes do ajudante começar, então ele é curto de propósito.
+  // O motor espera este gancho antes do ajudante começar, então ele é curto de propósito: só
+  // marca "sujo", e o tique grava (seis começando no mesmo segundo viram uma gravação só).
   on('classic.SubagentStart', async ($, e, next) => {
     ended.delete(e.agent_id)
+    leaving.delete(e.agent_id)
     running.set(e.agent_id, e.agent_type)
     lastSeen.set(e.agent_id, await $.clock.now())
-    await setHelpers($)
+    meet(e.agent_id).type ??= e.agent_type
+    teamDirty = true
     return next(e)
   })
+
+  // O rótulo, o tipo e o número de cada ajudante, para a fantasia. SÓ OLHA: deixa o ajudante
+  // nascer, anota em memória e devolve a resposta intocada. Nenhum $ e nenhuma gravação aqui.
+  on('agent.spawn', async ($, e, next) => {
+    const r = await next(e)
+    try {
+      if (r.agentId && !e.isTeammate) {
+        const m = meet(r.agentId)
+        m.label = e.description
+        m.type = e.subagentType
+        if (e.workflow) m.index = e.workflow.agentIndex
+        teamDirty = true
+      }
+    } catch {
+      // a fantasia é enfeite: nunca atrapalha o ajudante
+    }
+    return r
+  }).catch(($, e, next) => next(e))
 
   // O Claude parou esperando o seu sim: o Clawd chama você. O pedido (PermissionRequest) é o sinal
   // principal; o aviso "permission_prompt" (Notification) só vale de reserva, se o pedido não chegou.
@@ -1218,7 +1392,7 @@ export const register: Register = on => {
     const base = await read($, status)
     const tool = await read($, activity)
     const sky = await read($, weather)
-    const team = await read($, helpers)
+    const mates = teamOf(await read($, team))
     const boom = await read($, fireworks)
     const isUltra = await read($, ultra)
     await read($, taps) // cada tapinha que acerta o Clawd redesenha a faixa na hora
@@ -1236,7 +1410,7 @@ export const register: Register = on => {
     const laneEst = Math.max(0, (sideBySide ? e.props.bodyColumns - textCols - LANE_GAP_CH : e.props.bodyColumns) * CH_PX)
     // Os mini-Clawds só ganham baia se ainda sobrar uns 60 px pro Clawd andar.
     const cap = fitMinis((laneEst - PAD - 60) / CELL - BOX_W)
-    const travel = laneEst - PAD - (BOX_W + helpersZone(team, cap)) * CELL
+    const travel = laneEst - PAD - (BOX_W + helpersZone(mates.length, cap)) * CELL
     const parked = travel < PARK_PX
     const height = sideBySide ? Math.max(LANE_MIN_H, Math.round(rows.length * LINE_PX)) : LANE_MIN_H
 
@@ -1246,9 +1420,9 @@ export const register: Register = on => {
     // quanto ele anda, em px: pela largura medida da pista (se já houver) e com 10% de folga, para
     // ele nunca passar da beira esquerda mesmo se a coluna for mais estreita que CH_PX
     const laneW = laneCols > 0 ? laneCols * CH_PX : laneEst
-    const reach = Math.max(0, 0.9 * (laneW - PAD - (BOX_W + 1 + helpersZone(team, cap)) * CELL))
+    const reach = Math.max(0, 0.9 * (laneW - PAD - (BOX_W + 1 + helpersZone(mates.length, cap)) * CELL))
     lastLane = { travel: sceneTravel, parked, reach } // o tapinha continua a cena a partir daqui
-    const zone = helpersZone(team, cap)
+    const zone = helpersZone(mates.length, cap)
     if (zone !== laneZone) {
       // preso pela direita: a baia crescer empurra ele inteiro para a esquerda; ele desliza até lá
       zoneShift = { dx: zone - laneZone, at: now }
@@ -1267,9 +1441,8 @@ export const register: Register = on => {
     }
     const elapsed = (now - sc.startedAt) / 1000
     const boomAgo = !boom ? null : fireworksUntilAt >= 0 ? Math.max(0, (now - fireworksUntilAt) / 1000 + FIREWORKS_S) : now / 1000
-    let laneArt = laneSvg(sc.spec, elapsed, flags, height, { helpers: team, cap, fireworks: boomAgo, shift, reach }, now / 1000)
-    // o app recusa SVG acima de 131072 caracteres: nesse caso extremo, sem fogos
-    if (laneArt.length > SVG_SAFE) laneArt = laneSvg(sc.spec, elapsed, flags, height, { helpers: team, cap, fireworks: null, shift, reach }, now / 1000)
+    // o app recusa SVG acima de 131072 caracteres: nos casos extremos, sem fogos (e, se preciso, sem fantasias)
+    const laneArt = fitLane(sc.spec, elapsed, flags, height, { team: mates, cap, fireworks: boomAgo, shift, reach }, now / 1000)
 
     const { Box, Text, Svg, Client } = $.ui.resolve(e)
     const text = rows.length

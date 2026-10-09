@@ -19,6 +19,11 @@ export const cells = (pts: [number, number][], fill: string) => pts.map(([x, y])
 
 const round = (v: number) => Math.round(v * 1000) / 1000
 
+// A fase do relógio que as animações miúdas recebem (phased, em lane.ts): o relógio em segundos,
+// numa volta de uma hora. Mora aqui para a festa dos ajudantes (equipe.ts) fazer a MESMA conta
+// sem importar lane.ts.
+export const phaseOf = (wall: number) => wall % 3600
+
 // ---------- o corpo de frente ----------
 
 const HEAD = rect(14, 7, 16, 4, ORANGE)
@@ -85,7 +90,7 @@ const CANOPY_LIGHT = '#ff8a8f'
 const WOOD = '#5a3e2b'
 
 // Guarda-chuva: uma cúpula de 2*half células centrada em cx (6 linhas) e `pole` linhas de cabo.
-function umbrella(cx: number, top: number, half: number, pole: number): string {
+export function umbrella(cx: number, top: number, half: number, pole: number): string {
   const w = 2 * half
   const row = (y: number, frac: number) => {
     const rw = Math.max(2, Math.round((w * frac) / 2) * 2)
@@ -407,8 +412,9 @@ export function ultraLayer(height: number): string {
 
 // Cada mini-Clawd tem 12 células de largura e fica a 14 do vizinho. A baia inteira
 // fica à direita do Clawd principal, que nunca entra nela (ver helpersZone).
-const MINI_STEP = 14
-const MAX_MINIS = 6
+// O desenho dos minis (e das fantasias deles) mora em equipe.ts e fantasias.ts.
+export const MINI_STEP = 14
+export const MAX_MINIS = 6
 
 // Quantos mini-Clawds cabem em tantas células (no máximo seis).
 export const fitMinis = (cellsFree: number) => Math.max(0, Math.min(MAX_MINIS, Math.floor((cellsFree - 3) / MINI_STEP)))
@@ -417,42 +423,4 @@ export const fitMinis = (cellsFree: number) => Math.max(0, Math.min(MAX_MINIS, M
 export const helpersZone = (count: number, cap = MAX_MINIS) => {
   const n = Math.min(count, cap, MAX_MINIS)
   return n > 0 ? n * MINI_STEP + 3 : 0
-}
-
-// Um mini-Clawd (1 célula = 1 pixel dele) sentado atrás de um laptop, digitando.
-function mini(left: number, i: number): string {
-  const top = 15
-  const arms =
-    `<g>${rect(left, top + 2, 12, 2, ORANGE)}` +
-    `<animateTransform attributeName="transform" type="translate" values="0 0;0 -0.6" dur="0.32s" begin="${round(-i * 0.11)}s" calcMode="discrete" ${LOOP}/></g>`
-  return (
-    rect(left + 2, top, 8, 2, ORANGE) +
-    cells([[left + 3, top + 1], [left + 8, top + 1]], EYE) +
-    arms +
-    rect(left + 2, top + 4, 8, 2, ORANGE) +
-    [2, 4, 7, 9].map(x => rect(left + x, top + 6, 1, 2, ORANGE)).join('') +
-    // o laptop visto de trás, na frente da barriga
-    rect(left + 1, top + 4, 10, 4, '#8b8b8b') +
-    rect(left + 5.5, top + 5.5, 1, 1, '#c8c8c8')
-  )
-}
-
-// Chovendo, cada mini-Clawd ganha um guarda-chuva pequeno, do mesmo estilo do grande: preso na
-// cabeça, sem braço, cobrindo ele e o laptop (12 células de largura, 2 de folga para o vizinho).
-// A ponta fica na linha 8, o cabo desce até a cabeça (linha 15).
-const miniUmbrella = (left: number) => `<g class="mini-umbrella">${umbrella(left + 6, 8, 6, 2)}</g>`
-
-// Até seis mini-Clawds (ou os que couberem na pista), do canto direito para a esquerda;
-// passando disso, um "+N" em cima do último. Posições em células, a partir do canto direito.
-// Com chuva (`rain`), cada um usa o guarda-chuva e o "+N" sobe para cima da ponta dele.
-export function helpersLayer(count: number, cap: number, boxW: number, boxH: number, cell: number, height: number, rain = false): string {
-  const shown = Math.min(count, cap, MAX_MINIS)
-  if (shown <= 0) return ''
-  const leftOf = (i: number) => -MINI_STEP * (i + 1)
-  const minis = Array.from({ length: shown }, (_, i) => mini(leftOf(i), i) + (rain ? miniUmbrella(leftOf(i)) : '')).join('')
-  const extra =
-    count > shown
-      ? `<text x="${leftOf(shown - 1) + 6}" y="${rain ? 7 : 13}" text-anchor="middle" font-family="monospace" font-weight="bold" font-size="4" fill="#c4b5fd">+${count - shown}</text>`
-      : ''
-  return `<svg x="100%" y="${round(height - boxH * cell)}" width="${boxW * cell}" height="${boxH * cell}" viewBox="0 0 ${boxW} ${boxH}" overflow="visible">${minis}${extra}</svg>`
 }

@@ -1,5 +1,7 @@
-import { BODIES, BODY_KINDS, EYE_KINDS, EYES, fireworksLayer, FRONT_PROP_KINDS, FRONT_PROPS, FX, FX_KINDS, helpersLayer, helpersZone, legs, LOOP, PRESS, rainLayer, skyLayer, TYPING_PROP_KINDS, TYPING_PROPS, ULTRA_AURA, ultraLayer } from './art'
+import { BODIES, BODY_KINDS, EYE_KINDS, EYES, fireworksLayer, FRONT_PROP_KINDS, FRONT_PROPS, FX, FX_KINDS, helpersZone, legs, LOOP, phaseOf, PRESS, rainLayer, skyLayer, TYPING_PROP_KINDS, TYPING_PROPS, ULTRA_AURA, ultraLayer } from './art'
 import type { Body, Eyes } from './art'
+import { helpersLayer } from './equipe'
+import type { TeamMate } from '../types'
 import { LAPTOP_COLORS, LAPTOP_FPS, LAPTOP_FRAMES } from './laptop'
 import { posAt, span, STEP_S } from './scenes'
 import type { Flags, Spec, Step } from './scenes'
@@ -13,7 +15,7 @@ import type { Flags, Spec, Step } from './scenes'
 // grade da animação oficial do laptop.
 export const CELL = 2.25
 export const BOX_W = 34
-const BOX_H = 23
+export const BOX_H = 23
 export const LANE_W = 4000 // o app corta em 100% do espaço
 export const SVG_SAFE = 125_000 // o app aceita até 131072 caracteres de SVG
 export const LANE_MIN_CH = 13 // menos que isso ao lado do texto, e o Clawd vai pra linha de baixo
@@ -249,14 +251,15 @@ function both(
   )
 }
 
+// team: os ajudantes na baia, na ordem em que chegaram (cada um com a fantasia dele)
 // fireworks: segundos desde o commit (os fogos começam do zero), ou null sem fogos
 // reach: quantos px ele anda da ponta direita até a ponta esquerda (estimativa conservadora)
-type Lane = { helpers: number; cap: number; fireworks: number | null; shift: { dx: number; ago: number } | null; reach: number }
+export type Lane = { team: readonly TeamMate[]; cap: number; fireworks: number | null; shift: { dx: number; ago: number } | null; reach: number }
 
 // As animações miúdas dos desenhos (piscar, chuva, aura, fumaça, mini-Clawds) recebem a
 // fase do relógio: um redesenho cria uma imagem nova, e sem isso todas voltariam ao começo.
-function phased(art: string, wall: number): string {
-  const phase = wall % 3600
+export function phased(art: string, wall: number): string {
+  const phase = phaseOf(wall)
   return art.replace(/<(animate|animateTransform)\b([^>]*?)(\/?)>/g, (_m, tag: string, attrs: string, slash: string) => {
     const b = /\sbegin="(-?[\d.]+)s"/.exec(attrs)
     const begin = round((b ? Number(b[1]) : 0) - phase)
@@ -324,7 +327,7 @@ export function laneSvg(spec: Spec, elapsed: number, flags: Flags, height: numbe
   // recua a largura da baia deles: o Clawd nunca entra nela.
   // +1: o braço do aceno e o balanço da dança passam um pouco da caixa
   // o canto direito da caixa encosta no fim da pista (ou na baia dos ajudantes); p = 0 fica reach px à esquerda
-  const right = BOX_W + 1 + helpersZone(lane.helpers, lane.cap)
+  const right = BOX_W + 1 + helpersZone(lane.team.length, lane.cap)
   const reachC = lane.reach / CELL
   const at = (p: number) => `${round(-right - (1 - p) * reachC)} 0`
   // quando a baia dos ajudantes muda de tamanho, ele desliza até o lugar novo em vez de pular
@@ -338,7 +341,8 @@ export function laneSvg(spec: Spec, elapsed: number, flags: Flags, height: numbe
     (flags.ultra ? phased(ultraLayer(height), wall) : '') +
     (flags.night ? phased(skyLayer(flags.rain), wall) : '') +
     (flags.rain ? phased(rainLayer(height), wall) : '') +
-    phased(helpersLayer(lane.helpers, lane.cap, BOX_W, BOX_H, CELL, height, flags.rain), wall) +
+    // a festa de quem terminou conta do relógio também: o begin dela já desconta esta fase
+    phased(helpersLayer(lane.team, lane.cap, BOX_W, BOX_H, CELL, height, flags.rain, wall), wall) +
     // a imagem já nasce com o Clawd onde ele está agora: se o app mostrar um quadro antes de as
     // animações começarem (ele recria a imagem a cada redesenho, como no tapinha), as duas partes
     // da posição (a % da pista e a volta em células) continuam juntas e ele não aparece cortado
@@ -361,4 +365,18 @@ export function laneSvg(spec: Spec, elapsed: number, flags: Flags, height: numbe
     (lane.fireworks !== null ? phased(fireworksLayer(height), lane.fireworks) : '') +
     `</svg>`
   )
+}
+
+// O SVG que vai para o app, que recusa acima de 131072 caracteres. Passando de SVG_SAFE, a pista
+// sai sem os fogos; se ainda passar, os ajudantes ficam sem fantasia (continuam lá, e a festa
+// também). Quem chega perto do limite é o passeio do Clawd numa pista muito larga (~4000 px):
+// numa pista assim ele sozinho já passa de SVG_SAFE.
+export function fitLane(spec: Spec, elapsed: number, flags: Flags, height: number, lane: Lane, wall: number): string {
+  let art = laneSvg(spec, elapsed, flags, height, lane, wall)
+  if (art.length > SVG_SAFE && lane.fireworks !== null) art = laneSvg(spec, elapsed, flags, height, { ...lane, fireworks: null }, wall)
+  if (art.length > SVG_SAFE && lane.team.some(m => m.costume)) {
+    const plain = lane.team.map(m => ({ ...m, costume: '' as const }))
+    art = laneSvg(spec, elapsed, flags, height, { ...lane, fireworks: null, team: plain }, wall)
+  }
+  return art
 }

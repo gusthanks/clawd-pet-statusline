@@ -2,6 +2,14 @@ import { expect, mock, test } from 'claude-code/testing'
 import type { On } from 'claude-code'
 import { isTestCommand, testVerdict } from './git'
 import { isRaining, parseWindowsPlace, WINDOWS_PLACE_SCRIPT } from './weather'
+import { helpersZone, MINI_STEP } from './art'
+import { crewOf, helpersLayer, mini, PARTY_MS, teamOf } from './equipe'
+import { COSTUME_KINDS, costumeFor, settleCostume } from './fantasias'
+import type { CostumeHints } from './fantasias'
+import { BOX_H, BOX_W, CELL, fitLane, LANE_W, laneSvg, PAD, phased, SVG_SAFE } from './lane'
+import { buildScene, stand, WALK_PX } from './scenes'
+import type { Flags, SceneKind, Spec, Step } from './scenes'
+import type { Costume, TeamMate } from '../types'
 
 const band = (isWorking: boolean) => ({
   component: 'AbovePrompt' as const,
@@ -1160,4 +1168,488 @@ test('chuva: garoa só abre o guarda-chuva com precipitação de verdade', async
   expect(isRaining(80, 0)).toBe(true) // pancada
   expect(isRaining(3, 0.2)).toBe(false) // nublado com um traço de precipitação não é chuva
   expect(isRaining(0, 0)).toBe(false)
+})
+
+// ---------- as fantasias dos ajudantes ----------
+
+test('fantasias: os rótulos de verdade vestem a fantasia da tarefa', () => {
+  const cases: [CostumeHints, Costume][] = [
+    [{ label: 'mapear: faixa' }, 'detetive'],
+    [{ label: 'desenhar: trilho' }, 'pintor'],
+    [{ label: 'julgar: tecnica' }, 'juiz'],
+    [{ label: 'implementar: testes' }, 'engenheiro'], // o verbo vem antes de "testes"
+    [{ label: 'cético: verificação' }, 'pirata'], // o pirata é testado antes do piloto
+    [{ label: 'verificar: limites' }, 'piloto'],
+    [{ label: 'refutar: x' }, 'pirata'],
+    [{ label: 'escrever: readme' }, 'chef'],
+    [{ label: 'planejar: etapas' }, 'astronauta'],
+    [{ label: 'faixa', type: 'Explore' }, 'detetive'], // sem rótulo útil, o tipo diz
+    [{ label: 'faixa', type: 'Plan' }, 'astronauta'],
+    [{ label: 'tarefa 7', type: 'general-purpose', firstTool: 'Read' }, 'detetive'], // nada casou: a 1ª ferramenta
+    [{ label: 'tarefa 7', type: 'general-purpose', firstTool: 'WebFetch' }, 'detetive'],
+    [{ label: 'tarefa 7', type: 'general-purpose', firstTool: 'NotebookEdit' }, 'engenheiro'],
+    [{ label: 'corrigir cores' }, 'engenheiro'], // "cor" só casa inteira: "cores" não é pintura
+    [{ label: 'trocar a cor do botão' }, 'pintor'],
+    [{ label: 'gerar o artefato' }, ''], // "arte" não pega "artefato"
+    [{ label: 'Review the diff' }, 'piloto'], // sem ':', a primeira palavra é o verbo
+    [{ label: 'Fix failing tests' }, 'engenheiro'], // pelo texto todo seria piloto ("tests")
+    [{ label: 'tarefa 7', type: 'general-purpose', firstTool: 'Bash' }, ''],
+    [{}, ''],
+  ]
+  for (const [hints, want] of cases) expect(costumeFor(hints), JSON.stringify(hints)).toBe(want)
+})
+
+test('fantasias: rótulos reais dos workflows (o que o agente fazia de verdade, lido no prompt dele)', () => {
+  const W = 'workflow-subagent'
+  const cases: [CostumeHints, Costume][] = [
+    [{ label: 'rota:auth', type: W }, 'engenheiro'], // implementa a rota de API
+    [{ label: 'medir:backup', type: W }, 'detetive'], // mede o tamanho em disco, como o scan:
+    [{ label: 'scan:toplevel', type: W }, 'detetive'],
+    [{ label: 'comparar:1', type: W }, 'piloto'], // confere o bloco publicado contra a ficha
+    [{ label: 'compartilhar: link', type: W }, ''], // "compara" não pega "compartilhar"
+    [{ label: 'seo:onpage_seo', type: W, firstTool: 'WebFetch' }, 'detetive'], // "seo" é o assunto: é auditoria
+    [{ label: 'critique:filesystem-safety', type: W }, 'pirata'],
+    [{ label: 'critique:rollback-and-verification', type: W }, 'pirata'],
+    [{ label: 'Run kanban pytest suites', type: 'general-purpose' }, 'piloto'],
+    [{ label: 'Write LEIA-ME for touched areas', type: 'general-purpose', firstTool: 'Read' }, 'chef'],
+    [{ label: 'Copy de anúncios Borracha Líquida', type: 'marketing-copywriter' }, 'chef'], // pelo nome do tipo
+    [{ label: 'Forense de instalação do gstack', type: 'Explore' }, 'detetive'], // o tipo Explore vence o substantivo
+    [{ label: 'Estrutura da Will Tintas para avaliar encaixe do gstack', type: 'Explore' }, 'detetive'],
+    [{ label: 'Audit misplaced brand assets', type: 'Explore' }, 'piloto'], // o verbo continua na frente
+    [{ label: 'sintese-guia', type: W }, 'chef'],
+    [{ label: '4 correções na calculadora Shopify', type: 'general-purpose' }, 'engenheiro'],
+    [{ label: 'ocultos:varredura-total', type: W }, 'detetive'],
+    [{ label: 'inventario-do-setup', type: W }, 'detetive'],
+    [{ label: 'documento-mente', type: W }, ''], // "documento" é o assunto (é um revisor), não "documentar"
+    [{ label: 'documento-vs-codigo', type: W }, ''],
+    [{ label: 'documentar: api', type: W }, 'chef'],
+    [{ label: 'check:links', type: W }, 'piloto'],
+    [{ label: 'Checklist de lançamento Meta Ads + Shopify', type: 'executive-assistant', firstTool: 'Read' }, 'chef'], // escreve o checklist
+  ]
+  for (const [hints, want] of cases) expect(costumeFor(hints), JSON.stringify(hints)).toBe(want)
+})
+
+test('fantasias: uma vez decidida, nunca troca; o vazio vira fantasia quando a pista chega', () => {
+  expect(settleCostume('piloto', { label: 'implementar: x', firstTool: 'Edit' })).toBe('piloto')
+  expect(settleCostume(undefined, { label: 'tarefa 7' })).toBe('')
+  expect(settleCostume('', { label: 'tarefa 7', firstTool: 'Grep' })).toBe('detetive')
+})
+
+// Um SVG em árvore (só o que os desenhos usam: tags, atributos e filhos).
+type SvgNode = { tag: string; attrs: Record<string, string>; kids: SvgNode[] }
+function parseSvg(src: string): SvgNode {
+  const root: SvgNode = { tag: 'root', attrs: {}, kids: [] }
+  const stack: SvgNode[] = [root]
+  for (const m of src.matchAll(/<(\/?)([a-zA-Z]+)([^>]*?)(\/?)>/g)) {
+    if (m[1]) {
+      stack.pop()
+      continue
+    }
+    const attrs: Record<string, string> = {}
+    for (const a of (m[3] ?? '').matchAll(/([\w:-]+)="([^"]*)"/g)) attrs[a[1] ?? ''] = a[2] ?? ''
+    const node: SvgNode = { tag: m[2] ?? '', attrs, kids: [] }
+    stack[stack.length - 1]?.kids.push(node)
+    if (!m[4]) stack.push(node)
+  }
+  return root
+}
+
+// Os deslocamentos possíveis de um nó: o transform fixo dele e cada valor das animações de translate.
+function offsets(n: SvgNode): [number, number][] {
+  const fixed = /translate\(\s*(-?[\d.]+)[ ,]+(-?[\d.]+)\s*\)/.exec(n.attrs.transform ?? '')
+  const out: [number, number][] = [fixed ? [Number(fixed[1]), Number(fixed[2])] : [0, 0]]
+  for (const k of n.kids) {
+    if (k.tag !== 'animateTransform' || k.attrs.type !== 'translate') continue
+    for (const v of (k.attrs.values ?? '').split(';')) {
+      const [dx = '0', dy = '0'] = v.trim().split(/[ ,]+/)
+      out.push([Number(dx), Number(dy)])
+    }
+  }
+  return out
+}
+
+// Cada retângulo (ou célula de um <path>) com a caixa mais larga que ele pode ocupar, somando os
+// deslocamentos de quem o contém. x1/y1 são a borda direita/de baixo (coluna L+13 = borda L+14).
+function reach(root: SvgNode, skip: (n: SvgNode) => boolean) {
+  const boxes: { x0: number; x1: number; y0: number; y1: number }[] = []
+  const walk = (n: SvgNode, dx0: number, dx1: number, dy0: number, dy1: number) => {
+    if (skip(n)) return
+    const off = offsets(n)
+    const ax0 = dx0 + Math.min(...off.map(o => o[0]))
+    const ax1 = dx1 + Math.max(...off.map(o => o[0]))
+    const ay0 = dy0 + Math.min(...off.map(o => o[1]))
+    const ay1 = dy1 + Math.max(...off.map(o => o[1]))
+    if (n.tag === 'rect') {
+      const x = Number(n.attrs.x ?? 0)
+      const y = Number(n.attrs.y ?? 0)
+      boxes.push({ x0: x + ax0, x1: x + Number(n.attrs.width ?? 0) + ax1, y0: y + ay0, y1: y + Number(n.attrs.height ?? 0) + ay1 })
+    }
+    // células juntas num <path> (o dots() das fantasias e o compact() da baia): "Mx yhWvH..." cada uma
+    if (n.tag === 'path')
+      for (const c of (n.attrs.d ?? '').matchAll(/M(-?[\d.]+) (-?[\d.]+)h([\d.]+)v([\d.]+)/g)) {
+        const x = Number(c[1])
+        const y = Number(c[2])
+        boxes.push({ x0: x + ax0, x1: x + Number(c[3]) + ax1, y0: y + ay0, y1: y + Number(c[4]) + ay1 })
+      }
+    for (const k of n.kids) walk(k, ax0, ax1, ay0, ay1)
+  }
+  walk(root, 0, 0, 0, 0)
+  return boxes
+}
+
+const ALL_COSTUMES = ['', ...COSTUME_KINDS] as Costume[]
+
+test('fantasias: na baia cada uma fica no lugar dela (x de L a L+13, nada acima da linha 9), contando as animações', () => {
+  for (const costume of ALL_COSTUMES)
+    for (const tone of [0, 1, 2])
+      for (const i of [0, 5])
+        for (const rain of [false, true]) {
+          const L = -MINI_STEP * (i + 1)
+          const where = `${costume || 'sem fantasia'}, tom ${tone}, lugar ${i}${rain ? ', chovendo' : ''}`
+          // o guarda-chuva pequeno já existia e tem a ponta na linha 8: fica de fora da conta
+          const boxes = reach(parseSvg(mini(L, i, { costume, tone }, rain)), n => n.attrs.class === 'mini-umbrella')
+          expect(boxes.length, where).toBeGreaterThan(0)
+          for (const b of boxes) {
+            // as colunas L..L+13 são dele: o vizinho começa em L+14 (a borda direita da coluna L+13)
+            expect(b.x0, where).toBeGreaterThanOrEqual(L)
+            expect(b.x1, where).toBeLessThanOrEqual(L + 14)
+            expect(b.y0, where).toBeGreaterThanOrEqual(9)
+          }
+        }
+})
+
+test('festa: a garra sobe ao lado da cabeça, sem o objeto, e o chapéu voa sem sair da baia', () => {
+  for (const costume of ALL_COSTUMES)
+    for (const ago of [0, 0.5, 1.2, 3]) {
+      const L = -MINI_STEP * 3
+      const svg = mini(L, 2, { costume, tone: 0 }, false, { ago, begin: -ago })
+      const where = `${costume || 'sem fantasia'} aos ${ago} s`
+      for (const b of reach(parseSvg(svg), () => false)) {
+        expect(b.x0, where).toBeGreaterThanOrEqual(L)
+        expect(b.x1, where).toBeLessThanOrEqual(L + 14) // até a coluna L+13, como trabalhando
+        expect(b.y0, where).toBeGreaterThanOrEqual(5) // o chapéu sobe 3 linhas enquanto some
+      }
+      // a festa toca uma vez só, e nada digita
+      expect(svg, where).not.toContain('indefinite')
+      expect(svg, where).toContain('fill="freeze"')
+    }
+  // o objeto fica de fora: a frigideira do chef (#7a7f88) só aparece trabalhando
+  expect(mini(-14, 0, { costume: 'chef', tone: 0 }, false)).toContain('#7a7f88')
+  expect(mini(-14, 0, { costume: 'chef', tone: 0 }, false, { ago: 0.2, begin: -0.2 })).not.toContain('#7a7f88')
+  // depois do voo o chapéu nem é desenhado (o primeiro quadro de uma imagem nova já vem sem ele)
+  expect(mini(-14, 0, { costume: 'chef', tone: 0 }, false, { ago: 0.2, begin: -0.2 })).toContain('#eeeae0')
+  expect(mini(-14, 0, { costume: 'chef', tone: 0 }, false, { ago: 1.2, begin: -1.2 })).not.toContain('#eeeae0')
+})
+
+const WALL = 1_700_000_123.456 // o relógio em segundos, como a faixa passa
+const teamOfSize = (n: number, partyAgo: number | null = null): TeamMate[] =>
+  Array.from({ length: n }, (_, k) => ({
+    id: `ajudante-${k}`,
+    costume: ALL_COSTUMES[(k + 1) % ALL_COSTUMES.length] ?? '',
+    tone: k % 3,
+    ...(k === 1 && partyAgo !== null ? { doneAt: (WALL - partyAgo) * 1000 } : {}),
+  }))
+
+test('baia: toda animação tem begin (≤ 0 depois da fase), a festa conta do começo dela, nada em % e o "+N" na linha 7', () => {
+  for (const rain of [false, true]) {
+    const team = teamOfSize(8, 0.3)
+    const raw = helpersLayer(team, 6, BOX_W, BOX_H, CELL, 62, rain, WALL)
+    const layer = phased(raw, WALL)
+    const anims = layer.match(/<animate(Transform)?\b[^>]*>/g) ?? []
+    expect(anims.length).toBeGreaterThan(0)
+    expect((raw.match(/<animate(Transform)?\b[^>]*>/g) ?? []).every(a => a.includes('begin="'))).toBe(true)
+    for (const a of anims) {
+      const b = /\sbegin="(-?[\d.]+)s"/.exec(a)
+      expect(b?.[1], a).toBeDefined()
+      expect(Number(b?.[1]), a).toBeLessThanOrEqual(0)
+      // a festa de quem terminou há 0,3 s está em 0,3 s, depois da fase do relógio
+      if (a.includes('fill="freeze"')) expect(Math.abs(Number(b?.[1]) + 0.3), a).toBeLessThan(0.001)
+    }
+    expect(anims.some(a => a.includes('fill="freeze"'))).toBe(true)
+    // só a moldura da baia se prende ao canto por %; nada dentro dela
+    expect(layer.slice(layer.indexOf('>') + 1)).not.toContain('%')
+    expect(layer).toContain('y="7" text-anchor="middle"')
+    expect(layer).toContain('>+2</text>')
+  }
+})
+
+// O passeio mais longo que o sorteio pode dar (o mesmo que wander, em scenes.ts, monta, sem sorteio:
+// o Math.random do teste não se troca): sai do canto, vai ao começo da pista, volta, vai de novo e
+// volta, com as paradas mais longas. É ele que deixa o SVG grande numa pista larga.
+function farthestWander(travel: number): Spec {
+  const walkTo = (p0: number, p1: number): Step => ({
+    d: Math.max(0.4, (Math.abs(p1 - p0) * travel) / WALK_PX),
+    p0,
+    p1,
+    pose: { eyes: 'open', motion: 'walk', look: Math.sign(p1 - p0) },
+  })
+  const loop = [stand(1, 5), walkTo(1, 0), stand(0, 5.5), walkTo(0, 1), stand(1, 5.5), walkTo(1, 0), stand(0, 5.5), walkTo(0, 1)]
+  return { ...buildScene('idle', 1, true, travel, false), loop }
+}
+
+test('pior caso: seis fantasias, festa, chuva, noite, ultracode e fogos ficam abaixo do limite do app', () => {
+  const crowd = teamOfSize(9, 0.4) // seis na baia (um em festa) e "+3"
+  const lane = (team: TeamMate[]) => ({ team, cap: 6, fireworks: 0.5, shift: { dx: 14, ago: 0.2 }, reach: 3000 })
+  // o passeio que a faixa dá com a baia cheia numa pista desta largura (como o ui.render calcula)
+  const travelAt = (px: number) => px - PAD - (BOX_W + helpersZone(6)) * CELL
+  for (const rain of [true, false]) {
+    const flags: Flags = { tired: true, worried: true, morning: false, night: true, tool: 'edit', rain, ultra: true, hat: 'party' }
+    // as cenas que não passeiam, na pista mais larga que existe
+    for (const kind of ['work', 'party', 'oops', 'pass', 'sleep', 'compact', 'ask', 'pause'] as SceneKind[])
+      for (const elapsed of [0, 3, 40]) {
+        const svg = laneSvg(buildScene(kind, 0, true, LANE_W - PAD - BOX_W * CELL, false), elapsed, flags, 200, lane(crowd), WALL)
+        expect(svg.length, kind).toBeLessThan(SVG_SAFE)
+      }
+    // o passeio mais longo numa pista de monitor QHD inteiro (2560 px): tudo ligado e ainda abaixo
+    for (const elapsed of [0, 40, 200]) expect(laneSvg(farthestWander(travelAt(2560)), elapsed, flags, 200, lane(crowd), WALL).length).toBeLessThan(SVG_SAFE)
+    // numa pista de 4000 px o passeio sozinho já passa de SVG_SAFE (é do Clawd grande, não da baia):
+    // a reserva tira os fogos e depois as fantasias, e o SVG fica dentro do que o app aceita
+    for (const elapsed of [0, 40, 200]) {
+      const spec = farthestWander(travelAt(LANE_W))
+      const fit = fitLane(spec, elapsed, flags, 200, lane(crowd), WALL)
+      const plain = laneSvg(spec, elapsed, flags, 200, { ...lane(crowd.map(m => ({ ...m, costume: '' as const }))), fireworks: null }, WALL)
+      expect(fit.length).toBeLessThanOrEqual(131_072) // o app recusa acima disso
+      expect(fit.length).toBeLessThanOrEqual(plain.length) // nunca maior que com os minis sem fantasia
+    }
+  }
+})
+
+test('equipe: o que vem guardado é conferido (lixo vira baia vazia, campos estranhos viram o padrão)', () => {
+  expect(teamOf(3)).toEqual([])
+  expect(teamOf('x')).toEqual([])
+  expect(teamOf([null, 4, { id: 7 }, { id: 'a', costume: 'bruxa', tone: 4.5 }, { id: 'b', costume: 'juiz', tone: 5, doneAt: 9 }])).toEqual([
+    { id: 'a', costume: '', tone: 0 },
+    { id: 'b', costume: 'juiz', tone: 2, doneAt: 9 },
+  ])
+  expect(crewOf('estragado')).toEqual({})
+  expect(crewOf([1, 2])).toEqual({})
+  expect(crewOf({ a: { costume: 'bruxa', tone: 1 }, b: { costume: 'juiz', tone: 4 }, c: { costume: 'chef' }, d: 7 })).toEqual({
+    a: { costume: '', tone: 1 },
+    b: { costume: 'juiz', tone: 1 },
+  })
+})
+
+// O motor dos ajudantes no teste: o agent.spawn responde com um id novo; o resto só passa.
+function crewWorld(on: On, opts: WorldOptions = {}) {
+  const w = world(on, opts)
+  let n = 0
+  on('agent.spawn', () => ({ model: 'claude-opus-5-5', agentId: `ajudante-${++n}` }))
+  on('classic.SubagentStart', () => ({}))
+  on('agent.list', () => ({ value: [] }))
+  on('turn.complete', () => ({ text: '' }))
+  on('tool.call', () => ({ result: { stdout: 'ok', stderr: '', interrupted: false } as never }))
+  return w
+}
+
+const SPAWN = { tool_use_id: 'toolu_1', prompt: 'faça', provider: { plugin: 'engine', tier: 'core' }, parentModel: 'claude-opus-5-5', background: true, fork: false }
+
+// Um ajudante nasce (agent.spawn) e começa (SubagentStart), como o motor faz.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+async function hire($: any, description: string, subagentType = 'general-purpose', agentIndex?: number): Promise<string> {
+  const r = await $.agent.spawn({ ...SPAWN, description, subagentType, ...(agentIndex ? { workflow: { runId: 'wf_1', agentIndex } } : {}) })
+  await $.classic.SubagentStart({ agent_id: r.agentId, agent_type: subagentType })
+  return String(r.agentId)
+}
+
+// A baia dentro da pista inteira (o único <svg> preso a 100%), ou '' sem ajudantes.
+const bayOf = (src: string) => {
+  const i = src.indexOf('<svg x="100%"')
+  return i < 0 ? '' : src.slice(i, src.indexOf('</svg>', i) + 6)
+}
+
+test('equipe: seis ajudantes começando no mesmo segundo viram uma gravação só', { timeoutMs: 60000 }, async ($, on) => {
+  const { clock } = crewWorld(on, { env: { CLAWD_WEATHER: 'off' } })
+  let writes = 0
+  on('state.set', ($, e, next) => {
+    if ((e as { key?: unknown }).key === 'team') writes++
+    return next(e)
+  })
+  await start($)
+  writes = 0
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  for (let i = 1; i <= 6; i++) await ($ as any).classic.SubagentStart({ agent_id: `ajudante-${i}`, agent_type: 'general-purpose' })
+  expect(writes).toBe(0) // os eventos só marcam; quem grava é o tique
+  const ui = await $.ui.mount({ plugin: 'clawd', surface: 'desktop', ...band(false) })
+  await clock.advance(5_000)
+  expect(writes).toBe(1)
+  const bay = bayOf(String((await ui.find({ type: 'Svg' }))?.props.source))
+  expect(bay.match(/#c8c8c8/g)).toHaveLength(6) // seis laptops
+  await ui.unmount()
+})
+
+test('fantasia: decidida uma vez e nunca troca; sem pista, a 1ª ferramenta decide; o recarregamento mantém', { timeoutMs: 60000 }, async ($, on) => {
+  const { clock } = crewWorld(on, { env: { CLAWD_WEATHER: 'off' } })
+  await start($)
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const t = $ as any
+  const a = await hire($, 'verificar: limites', 'general-purpose', 4)
+  const b = await hire($, 'tarefa 7', 'general-purpose', 6)
+  const ui = await $.ui.mount({ plugin: 'clawd', surface: 'desktop', ...band(false) })
+  await clock.advance(1_000)
+  const look = async () => ((await report($)).equipe as { id: string; fantasia: string; tom: number }[]).map(m => [m.id, m.fantasia, m.tom])
+  expect(await look()).toEqual([[a, 'piloto', 1], [b, '', 0]]) // o tom vem do número no workflow
+  // pistas de outra fantasia não trocam a do piloto; o vazio vira detetive na 1ª ferramenta e para aí
+  await t.tool.call({ tool: 'NotebookEdit', notebook_path: 'C:/x.ipynb', new_source: 'x', agentId: a })
+  await t.tool.call({ tool: 'Grep', pattern: 'x', agentId: b })
+  await t.tool.call({ tool: 'NotebookEdit', notebook_path: 'C:/x.ipynb', new_source: 'x', agentId: b })
+  await clock.advance(1_000)
+  expect(await look()).toEqual([[a, 'piloto', 1], [b, 'detetive', 0]])
+  const bay = bayOf(String((await ui.find({ type: 'Svg' }))?.props.source))
+  expect(bay).toContain('#8e929a') // o mastro da bandeira do piloto
+  expect(bay).toContain('#6e4322') // a pala do boné do detetive
+  await ui.unmount()
+  // um recarregamento (o rótulo se perde) mantém as fantasias e os tons pelo atom 'crew'
+  await start($)
+  expect(await look()).toEqual([[a, 'piloto', 1], [b, 'detetive', 0]])
+})
+
+test('festa: quem termina bem comemora na baia e depois sai; com erro, sai na hora, sem festa', { timeoutMs: 60000 }, async ($, on) => {
+  const { clock } = crewWorld(on, { env: { CLAWD_WEATHER: 'off' } })
+  await start($)
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const t = $ as any
+  const chef = await hire($, 'escrever: readme')
+  const juiz = await hire($, 'julgar: tecnica')
+  const ui = await $.ui.mount({ plugin: 'clawd', surface: 'desktop', ...band(false) })
+  const bay = async () => bayOf(String((await ui.find({ type: 'Svg' }))?.props.source))
+  await clock.advance(1_000)
+  expect(await bay()).toContain('#7a7f88') // a frigideira do chef, trabalhando
+  expect(await bay()).toContain('#b07a45') // o martelo do juiz (o barrete muda de violeta com o tom)
+  expect(await bay()).not.toContain('fill="freeze"')
+
+  await t.turn.complete({ answer: 'pronto', durationMs: 5, isAborted: false, turnId: 'x', agentId: chef, reason: 'answer' })
+  await t.turn.complete({ answer: '', durationMs: 5, isAborted: false, turnId: 'y', agentId: juiz, reason: 'error' })
+  expect((await report($)).ajudantes).toEqual([])
+  expect((await report($)).equipe).toEqual([{ id: chef, fantasia: 'chef', tom: 1, rotulo: 'escrever: readme', festa: true }])
+  await clock.advance(1_000)
+  const party = await bay()
+  expect(party).toContain('fill="freeze"') // a festa toca uma vez só
+  expect(party).toContain('#eeeae0') // a touca voando
+  expect(party).not.toContain('#7a7f88') // sem o objeto
+  expect(party).not.toContain('#b07a45') // o juiz saiu na hora
+  expect(party.match(/#c8c8c8/g)).toHaveLength(1)
+  // a festa começa do começo quando aparece
+  for (const a of party.match(/<animate[^>]*fill="freeze"[^>]*>/g) ?? []) expect(Math.abs(Number(/begin="(-?[\d.]+)s"/.exec(a)?.[1]))).toBeLessThan(0.001)
+
+  await clock.advance(1_000) // 1 s de festa: ainda na baia
+  expect(await bay()).toContain('fill="freeze"')
+  await clock.advance(PARTY_MS) // passou da festa: sai no tique seguinte
+  expect(await bay()).toBe('')
+  expect((await report($)).equipe).toEqual([])
+  await ui.unmount()
+})
+
+test('equipe: um "helpers" numérico velho guardado não quebra nada (ninguém mais o lê)', { timeoutMs: 60000 }, async ($, on) => {
+  const { clock } = crewWorld(on, { env: { CLAWD_WEATHER: 'off' } })
+  // o que a versão antiga deixou guardado: o número de ajudantes
+  const reads: string[] = []
+  on('state.get', ($, e, next) => {
+    const key = String((e as { key?: unknown }).key)
+    reads.push(key)
+    return key === 'helpers' ? { value: 4 as never, version: 1 } : next(e)
+  })
+  const ui = await $.ui.mount({ plugin: 'clawd', surface: 'desktop', ...band(false) })
+  await start($)
+  await clock.advance(1_000)
+  expect(bayOf(String((await ui.find({ type: 'Svg' }))?.props.source))).toBe('') // o "4" não vira mini nenhum
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  await ($ as any).classic.SubagentStart({ agent_id: 'ajudante-1', agent_type: 'general-purpose' })
+  await clock.advance(1_000)
+  expect(bayOf(String((await ui.find({ type: 'Svg' }))?.props.source)).match(/#c8c8c8/g)).toHaveLength(1)
+  expect(reads).not.toContain('helpers')
+  await ui.unmount()
+})
+
+test('fantasia: o ToolSearch (só carrega ferramentas) não conta como a 1ª ferramenta', { timeoutMs: 60000 }, async ($, on) => {
+  const { clock } = crewWorld(on, { env: { CLAWD_WEATHER: 'off' } })
+  await start($)
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const t = $ as any
+  const b = await hire($, 'tarefa 7', 'general-purpose', 6)
+  await clock.advance(1_000)
+  await t.tool.call({ tool: 'ToolSearch', query: 'select:StructuredOutput', max_results: 1, agentId: b })
+  await t.tool.call({ tool: 'Read', file_path: 'C:/x.txt', agentId: b })
+  await clock.advance(1_000)
+  expect(((await report($)).equipe as { id: string; fantasia: string }[]).map(m => [m.id, m.fantasia])).toEqual([[b, 'detetive']])
+})
+
+test('equipe: recarregar logo depois do fim de ajudantes de workflow (antes do tique) não os ressuscita', { timeoutMs: 60000 }, async ($, on) => {
+  const { clock } = crewWorld(on, { env: { CLAWD_WEATHER: 'off' } }) // os de workflow nunca aparecem na lista do motor
+  await start($)
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const t = $ as any
+  let ui = await $.ui.mount({ plugin: 'clawd', surface: 'desktop', ...band(false) })
+  await t.classic.SubagentStart({ agent_id: 'w1', agent_type: 'general-purpose' })
+  await t.classic.SubagentStart({ agent_id: 'w2', agent_type: 'general-purpose' })
+  await clock.advance(1_000)
+  expect((await report($)).ajudantes).toEqual(['w1', 'w2'])
+  await t.turn.complete({ answer: '', durationMs: 5, isAborted: false, turnId: 'x', agentId: 'w1', reason: 'error' })
+  await t.turn.complete({ answer: '', durationMs: 5, isAborted: false, turnId: 'y', agentId: 'w2', reason: 'answer' })
+  await ui.unmount()
+  await start($) // o processo dos ganchos renasce (ou o mod recarrega) antes do próximo tique
+  ui = await $.ui.mount({ plugin: 'clawd', surface: 'desktop', ...band(false) })
+  await clock.advance(5_000)
+  expect((await report($)).ajudantes).toEqual([])
+  expect(bayOf(String((await ui.find({ type: 'Svg' }))?.props.source))).toBe('')
+  await ui.unmount()
+})
+
+test('ultracode: a sobra acaba com o último ajudante do turno ultracode, e só existe se ficou ajudante', { timeoutMs: 60000 }, async ($, on) => {
+  const { clock } = crewWorld(on, { env: { CLAWD_WEATHER: 'off' } })
+  on('prompt.attachment', ($, e) => ({ text: e.text }))
+  on('turn.start', ($, e) => ({ turnId: e.turnId }))
+  await start($)
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const t = $ as any
+  const ui = await $.ui.mount({ plugin: 'clawd', surface: 'desktop', ...band(false) })
+  const fim = (agentId: string) => t.turn.complete({ answer: '', durationMs: 5, isAborted: false, turnId: 'h', agentId, reason: 'answer' })
+  const ultracodeTurn = async (turnId: string) => {
+    await t.turn.start({ text: 'ultracode: revisa o mod', turnId })
+    await t.prompt.attachment({ type: 'workflow_keyword_request', text: 'ultracode', origin: { kind: 'engine' } })
+  }
+  // o turno ultracode termina com um ajudante trabalhando: a aura fica enquanto ele trabalha
+  await ultracodeTurn('t1')
+  await t.classic.SubagentStart({ agent_id: 'h1', agent_type: 'general-purpose' })
+  await t.turn.complete({ answer: 'ok', durationMs: 5, isAborted: false, turnId: 't1', reason: 'answer' })
+  await clock.advance(1_000)
+  expect((await report($)).ultracode).toBe(true)
+  // ele acaba e, no mesmo segundo (antes do tique), um turno comum chama outro ajudante: apaga
+  await fim('h1')
+  await t.turn.start({ text: 'oi', turnId: 't2' })
+  await t.classic.SubagentStart({ agent_id: 'h2', agent_type: 'general-purpose' })
+  await clock.advance(10_000)
+  expect((await report($)).ultracode).toBe(false)
+  await fim('h2')
+  await t.turn.complete({ answer: 'ok', durationMs: 5, isAborted: false, turnId: 't2', reason: 'answer' })
+  await clock.advance(5_000)
+  // um turno ultracode cujo ajudante acabou antes dele: nada sobra para o turno comum seguinte
+  await ultracodeTurn('t3')
+  await t.classic.SubagentStart({ agent_id: 'h3', agent_type: 'general-purpose' })
+  await clock.advance(1_000)
+  await fim('h3')
+  await clock.advance(5_000)
+  await t.turn.complete({ answer: 'ok', durationMs: 5, isAborted: false, turnId: 't3', reason: 'answer' })
+  await clock.advance(5_000)
+  await t.turn.start({ text: 'oi', turnId: 't4' })
+  await t.classic.SubagentStart({ agent_id: 'h4', agent_type: 'general-purpose' })
+  await clock.advance(5_000)
+  const r = await report($)
+  expect([r.ultracode, r.ultracode_motivos.sobra]).toEqual([false, false])
+  await ui.unmount()
+})
+
+test('equipe: teammate com papel na lista do motor não entra na baia (só os ajudantes)', { timeoutMs: 60000 }, async ($, on) => {
+  const { clock } = world(on, { env: { CLAWD_WEATHER: 'off' } })
+  const rows = [
+    { id: 'tm-1', teammateId: 'revisor@time', name: 'revisor', type: 'revisor', status: 'running', description: 'verificar: tudo' },
+    { id: 'ag-1', type: 'general-purpose', status: 'running', description: 'verificar: limites' },
+  ]
+  on('agent.list', () => ({ value: rows as never }))
+  on('turn.complete', () => ({ text: '' }))
+  on('tool.call', () => ({ result: { stdout: 'ok', stderr: '', interrupted: false } as never }))
+  await start($)
+  const ui = await $.ui.mount({ plugin: 'clawd', surface: 'desktop', ...band(false) })
+  await clock.advance(3_000)
+  expect(((await report($)).equipe as { id: string; fantasia: string }[]).map(m => [m.id, m.fantasia])).toEqual([['ag-1', 'piloto']])
+  await ui.unmount()
 })

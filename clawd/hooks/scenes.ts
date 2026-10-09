@@ -25,7 +25,7 @@ export const PAUSE_S = 40
 export const PAUSE_EVERY_S = 20 * 60
 
 // As velocidades e os tempos dos passos.
-const WALK_PX = 30 // px por segundo, passeando
+export const WALK_PX = 30 // px por segundo, passeando
 const RUN_PX = 140 // px por segundo, correndo pro laptop
 export const STEP_S = 0.18 // meio passo
 const WAVE_S = 1.2
