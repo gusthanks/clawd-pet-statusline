@@ -1,7 +1,7 @@
 {
   "name": "clawd",
-  "version": "0.2.0",
-  "description": "O Clawd, bichinho do Claude Code, morando animado acima da caixa de mensagem.",
+  "version": "0.3.0",
+  "description": "Clawd, the little Claude Code crab, living animated above the message box, with costumed helpers and a progress bar.",
   "types": "./types/index.d.ts",
   "author": {
     "name": "Gus"
