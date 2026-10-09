@@ -1,11 +1,13 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, HttpInit, HttpResponse, Register } from 'claude-code'
-import type { Activity, ClawdMood, Costume, Crew, Lines, SavedScene, StatusSpan, TeamMate, Weather } from '../types'
+import type { Activity, ClawdMood, Costume, Crew, Lines, Progress, SavedRun, SavedScene, StatusSpan, TeamMate, Weather } from '../types'
 import { fitMinis, helpersZone, ORANGE } from './art'
 import { crewOf, PARTY_MS, teamOf } from './equipe'
 import { settleCostume } from './fantasias'
 import { changedLines, gitHappened, isLines, testVerdict } from './git'
 import type { Ran } from './git'
+import { advance, batchFill, END_CHECK_MS, endOf, endStatus, FAIL_MS, finalFileOf, finishRun, loadRuns, META_READS, META_TRIES, newRun, OK_MS, OVER_WAIT_MS, parsePhases, phaseOfLabel, phaseOfTitle, placeBar, progressOf, QUIET_MS, relaunch, runProgress, saveRun, setPhases, settled, TASKS_DONE_MS, tasksProgress, verdictOf } from './progresso'
+import type { Placed, Run, TaskItem } from './progresso'
 import { BOX_W, CELL, CH_PX, fitLane, LANE_GAP_CH, LANE_MIN_CH, LANE_MIN_H, LANE_W, LINE_PX, PAD, PARK_PX, wideFits } from './lane'
 import { LIMITS_BACKOFF_MS, LIMITS_EVERY_MS, LIMITS_FRESH_MS, USAGE_URL, windowOf } from './limits'
 import type { Window } from './limits'
@@ -34,6 +36,7 @@ import type { Place } from './weather'
 //   tapinha.ts     o recado do clique, onde ele acerta o Clawd e a cena da reação
 //   fantasias.ts   as fantasias dos ajudantes e quem veste qual, pela tarefa
 //   equipe.ts      a baia dos ajudantes: o mini com a fantasia, a festa de quem terminou
+//   progresso.ts   a barra de progresso (texto na coluna da statusline): o que mostra e onde cabe
 //   art.ts, laptop.ts  os desenhos
 
 const mood = atom({ plugin: 'clawd', key: 'mood' } as const, 'idle' as ClawdMood)
@@ -52,6 +55,10 @@ const savedScene = atom({ plugin: 'clawd', key: 'scene' } as const, null as Save
 const savedRunning = atom({ plugin: 'clawd', key: 'running' } as const, {} as Record<string, string>)
 // A fantasia e o tom de cada um deles, guardados junto: um recarregamento não troca a fantasia de ninguém.
 const savedCrew = atom({ plugin: 'clawd', key: 'crew' } as const, {} as Crew)
+// A barra de progresso que a faixa desenha (null: nenhuma). Só o tique grava, e só quando muda.
+const progress = atom({ plugin: 'clawd', key: 'progress' } as const, null as Progress | null)
+// As execuções de workflow em andamento, guardadas para um recarregamento continuar a mesma barra.
+const savedRuns = atom({ plugin: 'clawd', key: 'runs' } as const, [] as SavedRun[])
 const compacting = atom({ plugin: 'clawd', key: 'compacting' } as const, false)
 // O Claude parou esperando o seu sim numa permissão: o Clawd larga o laptop e chama você.
 const asking = atom({ plugin: 'clawd', key: 'asking' } as const, false)
@@ -585,6 +592,317 @@ function dress(m: Mate): { costume: Costume; tone: number } {
   return { costume: m.costume, tone: m.tone }
 }
 
+// ---------- a barra de progresso ----------
+
+// Uma linha de texto na coluna da statusline (progresso.ts), nunca dentro da pista. As fontes, em
+// ordem: um workflow (🧩), a lista de tarefas (📋) e o lote de ajudantes da ferramenta Agent (🤖).
+// Tudo em memória: os ganchos só anotam (o agent.spawn nem usa o $), e o tique lê os arquivos,
+// decide a fonte e grava o atom 'progress' só quando ele muda, no máximo ~1x/s.
+const runs = new Map<string, Run>() // runId -> a execução
+const agentRun = new Map<string, string>() // agentId -> runId
+const tasks = new Map<string, TaskItem>() // a lista de tarefas do agente principal, por id
+let taskSeq = 0 // a ordem em que as tarefas entram em andamento (o rótulo é a mais recente)
+let tasksTouched = false
+let tasksAt = -Infinity // o último evento de tarefa
+let tasksDoneAt: number | null = null // quando a lista ficou toda feita
+// O lote: quem começou desde que a baia estava vazia, e quem já terminou. Os de workflow e os
+// teammates ficam de fora na hora de contar (a execução deles pode ser conhecida só depois).
+const batch = { ids: new Set<string>(), done: new Set<string>(), fill: 0 }
+const teammates = new Set<string>()
+let lastCap = -1 // quantos minis a última faixa tinha lugar para mostrar (0: a pista não tem baia)
+let progressNow: Progress | null = null // a última barra decidida (para o diagnóstico)
+let progressSig: string | null = null
+let runsSig: string | null = null
+let progressWroteAt = -Infinity
+let progressBusy = false
+const PROGRESS_WRITE_MS = 900
+// O encaixe que a última faixa desenhou (só para o diagnóstico).
+let lastBand: Record<string, unknown> | null = null
+
+function runOf(runId: string): Run {
+  let run = runs.get(runId)
+  if (!run) runs.set(runId, (run = newRun(runId)))
+  return run
+}
+
+const slash = (v: unknown) => (typeof v === 'string' ? v.replace(/\\/g, '/') : '')
+const textOf = (v: unknown) => (typeof v === 'string' ? v : '')
+
+// O Workflow do agente principal rodou e lançou uma execução local: a barra começa. Uma retomada
+// (resumeFromRunId) reaproveita o runId e continua a mesma barra. O remote_launched (e o
+// remote_agent) não tem agentes locais: fica de fora.
+function noteWorkflow(input: Record<string, unknown>, result: unknown, now: number) {
+  const r = (result ?? {}) as Record<string, unknown>
+  if (r.status !== 'async_launched' || r.taskType !== 'local_workflow') return
+  const runId = textOf(r.runId)
+  if (!runId) return
+  const run = runOf(runId)
+  run.launched++
+  run.launchAt = now
+  if (run.launched === 1 || run.startedAt < 0) run.startedAt = now
+  run.taskId = textOf(r.taskId) || run.taskId
+  run.name = textOf(r.workflowName).slice(0, 60) || run.name
+  run.dir = slash(r.transcriptDir) || run.dir
+  run.script = slash(r.scriptPath) || run.script
+  // retomada (o mesmo runId de novo, ou um que a memória já esqueceu): a fase continua de onde
+  // estava, o preenchimento dela recomeça com os agentes de agora, e o arquivo final que já existe
+  // é o da execução anterior
+  if (run.launched > 1 || textOf(input.resumeFromRunId)) relaunch(run)
+  run.end = ''
+  run.endAt = -1
+  run.hidden = false
+  run.overAt = -1
+  run.tries = 0
+  run.checkAt = now + END_CHECK_MS
+  run.lastAt = now
+  // as fases: o script veio no pedido? Senão o tique lê o scriptPath (uma vez)
+  if (!run.known) {
+    const phases = parsePhases(input.script)
+    if (phases) setPhases(run, phases)
+  }
+}
+
+// Um agente de workflow nasceu (agent.spawn). Sem $: só memória. A fase sai do rótulo se as fases
+// já são conhecidas; senão (ou se não casar) o tique tenta de novo e, de reserva, lê o meta.json.
+function noteRunAgent(runId: string, id: string, label: string) {
+  const run = runOf(runId)
+  agentRun.set(id, runId)
+  if (!run.agents.has(id)) run.agents.set(id, { label, phase: phaseOfLabel(label, run.phases), done: false, ok: false, metaTried: false })
+  run.touched = true
+}
+
+// O fim de um agente de workflow ('answer' = terminou bem). true: mudou alguma execução.
+function endRunAgent(id: string, ok: boolean): boolean {
+  const run = runs.get(agentRun.get(id) ?? '')
+  const a = run?.agents.get(id)
+  if (!run || !a || a.done) return false
+  a.done = true
+  a.ok = ok
+  run.touched = true
+  return true
+}
+
+// A lista de tarefas do motor é da conversa: um /clear (ou um /resume de outra) começa outra.
+function forgetTasks() {
+  tasks.clear()
+  taskSeq = 0
+  tasksTouched = false
+  tasksAt = -Infinity
+  tasksDoneAt = null
+}
+
+// A lista de tarefas do agente principal: TaskCreate e TaskUpdate (o activeForm e o status) e o
+// TodoWrite, que troca a lista inteira. O TaskCreated e o TaskCompleted (ganchos clássicos)
+// também anotam; as duas vias usam o mesmo id, então nada conta duas vezes.
+function taskOf(id: string, subject: string): TaskItem {
+  let t = tasks.get(id)
+  if (!t) tasks.set(id, (t = { subject, status: 'pending', active: '', since: 0 }))
+  else if (subject && !t.subject) t.subject = subject
+  return t
+}
+
+function noteTasks(tool: string, input: Record<string, unknown>, result: unknown) {
+  const r = (result ?? {}) as Record<string, unknown>
+  if (tool === 'TaskCreate') {
+    const task = (r.task ?? {}) as Record<string, unknown>
+    const id = textOf(task.id)
+    if (!id) return
+    const t = taskOf(id, textOf(task.subject) || textOf(input.subject))
+    if (textOf(input.activeForm)) t.active = textOf(input.activeForm)
+  } else if (tool === 'TaskUpdate') {
+    if (r.success === false) return
+    const id = textOf(input.taskId) || textOf(r.taskId)
+    const t = tasks.get(id)
+    if (!t) return
+    const to = textOf((r.statusChange as { to?: unknown } | undefined)?.to) || textOf(input.status)
+    if (to === 'deleted') tasks.delete(id)
+    else {
+      if (textOf(input.activeForm)) t.active = textOf(input.activeForm)
+      if (textOf(input.subject)) t.subject = textOf(input.subject)
+      if (to === 'in_progress') {
+        t.status = 'in_progress'
+        t.since = ++taskSeq
+      } else if (to === 'completed' || to === 'pending') t.status = to
+    }
+  } else if (tool === 'TodoWrite') {
+    const list = Array.isArray(r.newTodos) ? r.newTodos : Array.isArray(input.todos) ? input.todos : null
+    if (!list) return
+    tasks.clear()
+    list.forEach((raw: unknown, i: number) => {
+      const o = (raw ?? {}) as Record<string, unknown>
+      const status = o.status === 'completed' || o.status === 'in_progress' ? o.status : 'pending'
+      tasks.set(`todo:${i}`, { subject: textOf(o.content), status, active: textOf(o.activeForm), since: status === 'in_progress' ? ++taskSeq : 0 })
+    })
+  } else return
+  tasksTouched = true
+}
+
+// O mtime do arquivo final agora: -1 se ele não existe; null se não deu para saber (confere de novo).
+async function mtimeOf($: EngineInterface, file: string): Promise<number | null> {
+  const has = await $.fs.exists(file).catch(() => null)
+  if (has === null) return null
+  if (!has) return -1
+  const st = await $.fs.stat(file).catch(() => null)
+  return st ? st.mtimeMs : null
+}
+
+// O status do arquivo final da execução ('' enquanto ele não existe). Numa retomada o arquivo da
+// execução anterior já está lá (o runId é o mesmo): só vale um com outro mtime que o anotado no
+// começo do lançamento (comparar com o relógio falha quando o da máquina volta para trás). Existe
+// mas não dá para ler (sendo gravado, ou grande demais): mais duas tentativas e decide pelos agentes.
+async function finalStatus($: EngineInterface, run: Run): Promise<'' | 'ok' | 'fail'> {
+  const file = finalFileOf(run)
+  if (!file || run.seen === null || !(await $.fs.exists(file).catch(() => false))) return ''
+  const st = await $.fs.stat(file).catch(() => null)
+  // sem o mtime, só vale se não havia arquivo nenhum no começo do lançamento
+  if (st ? st.mtimeMs === run.seen : run.seen >= 0) return ''
+  const status = endStatus(await $.fs.read(file).catch(() => ''))
+  if (status) return endOf(run, status)
+  return ++run.tries >= 3 ? verdictOf(run) : ''
+}
+
+// Terminou: a barra enche (ou congela) e o Clawd reage pelo canal de reação, que vence o 'work'
+// do turno que o aviso de fim abre.
+async function endRun($: EngineInterface, run: Run, end: 'ok' | 'fail', now: number) {
+  finishRun(run, end, now)
+  await react($, end === 'ok' ? 'pass' : 'oops')
+}
+
+// As leituras de arquivo da barra, todas aqui no tique (nunca num gancho): as fases do script (uma
+// leitura), a fase dos agentes cujo rótulo não casou (meta.json, no máximo META_READS por tique,
+// sem varrer pasta) e o arquivo final (a cada END_CHECK_MS, ou logo depois do Stop).
+async function readRuns($: EngineInterface, now: number) {
+  let metaLeft = META_READS
+  for (const run of runs.values()) {
+    if (!run.launched || run.end) continue
+    if (!run.known) setPhases(run, run.script ? parsePhases(await $.fs.read(run.script).catch(() => null)) : null)
+    if (run.phases.length) {
+      for (const [id, a] of run.agents) {
+        if (a.phase >= 0) continue
+        a.phase = phaseOfLabel(a.label, run.phases)
+        if (a.phase >= 0 || a.metaTried || !run.dir || metaLeft <= 0) continue
+        metaLeft--
+        try {
+          const meta = JSON.parse(await $.fs.read(`${run.dir}/agent-${id}.meta.json`)) as { workflowPhase?: unknown }
+          a.phase = phaseOfTitle(meta.workflowPhase, run.phases)
+          a.metaTried = true // leu: casando ou não, não lê de novo
+        } catch {
+          // o arquivo nasce até ~5 s depois do agente (ou está pela metade): tenta de novo no
+          // próximo tique, até META_TRIES vezes; depois o agente fica sem fase
+          a.metaTries = (a.metaTries ?? 0) + 1
+          if (a.metaTries >= META_TRIES) a.metaTried = true
+        }
+      }
+    }
+    // numa retomada, o mtime do arquivo final da execução anterior, antes de qualquer conferência
+    if (run.seen === null && run.dir) run.seen = await mtimeOf($, finalFileOf(run))
+    if (now >= run.checkAt) {
+      run.checkAt = now + END_CHECK_MS
+      const end = run.dir ? await finalStatus($, run) : ''
+      if (end) await endRun($, run, end, now)
+      // a reserva do Stop: sem o arquivo, decide pelos agentes, mas só com todos eles terminados
+      // (um agente ainda rodando prova que a execução não acabou) e ao menos um conhecido
+      else if (run.overAt >= 0 && now - run.overAt >= OVER_WAIT_MS && settled(run)) {
+        await endRun($, run, verdictOf(run), now)
+      }
+    }
+  }
+}
+
+// Os ajudantes da ferramenta Agent no lote de agora (sem os de workflow nem os teammates).
+const batchIds = () => [...batch.ids].filter(id => !agentRun.has(id) && !teammates.has(id))
+
+// A barra de agora, pela ordem das fontes. Duas execuções ao mesmo tempo: a mais recente, com "+1";
+// mas o ✅/❌ de uma passa à frente na vez dele (5 ou 8 s), para o fim de cada uma aparecer junto
+// com a reação do Clawd.
+function pickProgress(): Progress | null {
+  const live = [...runs.values()].filter(r => r.launched > 0 && !r.hidden)
+  if (live.length) {
+    const ending = live.filter(r => r.end)
+    const top = (ending.length ? ending : live).reduce((a, b) => (b.startedAt > a.startedAt ? b : a))
+    return runProgress(top, live.filter(r => r !== top && !r.end).length)
+  }
+  if (tasks.size >= 2) return tasksProgress([...tasks.values()])
+  const ids = batchIds()
+  // o lote só aparece com 2 ou mais; com 1 só quando a pista não tem baia (o único sinal da equipe)
+  if (ids.length >= 2 || (ids.length === 1 && lastCap === 0)) {
+    return { k: 'agents', name: '', phases: [], at: 0, fill: batch.fill, done: ids.filter(id => batch.done.has(id)).length, all: 0, end: '', more: 0 }
+  }
+  return null
+}
+
+// Grava a cópia das execuções em andamento (o atom 'runs') só quando ela muda. A hora do último
+// evento vai arredondada ao minuto: a cópia não é regravada a cada ferramenta. O desenho não lê
+// 'runs': gravar aqui não pisca a faixa.
+async function flushRuns($: EngineInterface) {
+  const keep = [...runs.values()].filter(r => r.launched > 0 && !r.end).map(r => ({ ...saveRun(r), lastAt: Math.floor(r.lastAt / 60_000) * 60_000 }))
+  const keepSig = JSON.stringify(keep)
+  if (keepSig === runsSig) return
+  runsSig = keepSig
+  await update($, savedRuns, () => keep)
+}
+
+// Grava a barra (e a cópia das execuções) só quando a assinatura muda, e não mais que ~1x/s.
+async function flushProgress($: EngineInterface, now: number) {
+  const next = pickProgress()
+  progressNow = next
+  const sig = JSON.stringify(next)
+  if (sig !== progressSig && now - progressWroteAt >= PROGRESS_WRITE_MS) {
+    progressSig = sig
+    progressWroteAt = now
+    await update($, progress, () => next)
+  }
+  await flushRuns($)
+}
+
+// O tique da barra: lê o que falta, refaz as contas (nunca recuando), tira o que expirou e grava.
+// Um de cada vez: as leituras de arquivo podem passar de 1 s.
+async function stepProgress($: EngineInterface, now: number) {
+  if (progressBusy) return
+  progressBusy = true
+  try {
+    await readRuns($, now)
+    for (const [runId, run] of runs) {
+      if (run.touched) {
+        run.touched = false
+        run.lastAt = now
+        if (run.startedAt < 0) run.startedAt = now
+      }
+      advance(run)
+      if (run.end && !run.hidden && now - run.endAt >= (run.end === 'ok' ? OK_MS : FAIL_MS)) run.hidden = true
+      // 30 min sem nenhum evento: some em silêncio (a terminada fica esse tempo para uma retomada)
+      if (now - (run.end ? run.endAt : run.lastAt) >= QUIET_MS) {
+        runs.delete(runId)
+        for (const id of run.agents.keys()) agentRun.delete(id)
+      }
+    }
+    // a lista de tarefas: some 5 s depois de toda feita, ou depois de 30 min sem evento de tarefa
+    if (tasksTouched) {
+      tasksTouched = false
+      tasksAt = now
+    }
+    const open = [...tasks.values()].some(t => t.status !== 'completed')
+    if (!tasks.size || open) tasksDoneAt = null
+    else if (tasksDoneAt === null) tasksDoneAt = now
+    if ((tasksDoneAt !== null && now - tasksDoneAt >= TASKS_DONE_MS) || now - tasksAt >= QUIET_MS) {
+      tasks.clear()
+      tasksDoneAt = null
+    }
+    // o lote vai da baia vazia até a baia esvaziar de novo
+    if (running.size === 0 && leaving.size === 0) {
+      batch.ids.clear()
+      batch.done.clear()
+      batch.fill = 0
+    } else {
+      const ids = batchIds()
+      batch.fill = batchFill(batch.fill, ids.length, ids.filter(id => batch.done.has(id)).length)
+    }
+    await flushProgress($, now)
+  } finally {
+    progressBusy = false
+  }
+}
+
 // ---------- a cena atual ----------
 
 // A cena atual. Quando o humor muda, a cena nova começa de onde ele estava.
@@ -860,9 +1178,11 @@ async function celebrate($: EngineInterface) {
   await update($, fireworks, () => true)
 }
 
-// Um teste terminou (agente principal): passou, a garra sobe; falhou, o susto. Só grava se mudou.
-async function reactToTest($: EngineInterface, verdict: 'pass' | 'fail') {
-  const next = verdict === 'pass' ? 'pass' : 'oops'
+// Uma reação rápida: 'pass' (a garra sobe com o ✓) ou 'oops' (o susto). Vem de um teste que rodou
+// no agente principal e do fim de um workflow (ou de quem mais precisar). Vence o 'work' na escolha
+// da cena (ui.render), o que importa no fim do workflow: o aviso dele abre um turno novo. Só grava
+// se mudou.
+async function react($: EngineInterface, next: 'pass' | 'oops') {
   reactionUntilAt = (await $.clock.now()) + (next === 'pass' ? PASS_S : OOPS_S) * 1000
   if (reactionNow === next) return
   reactionNow = next
@@ -920,6 +1240,8 @@ async function stepClock($: EngineInterface) {
   if (working && wantActivity !== doing) await setActivity($, wantActivity)
   // a baia dos ajudantes: quem chegou, quem saiu, quem comemora
   await flushTeam($)
+  // a barra de progresso: as leituras de arquivo, as contas e a gravação, no máximo ~1x/s
+  await stepProgress($, now)
 }
 
 // Os relógios (humor, ajudantes, statusline, limites, clima) só servem para desenhar a
@@ -1043,6 +1365,39 @@ export const register: Register = on => {
     ultraOn = await read($, ultra)
     ultraWorkflow = ultraOn
     await flushTeam($, true)
+    // a barra: as execuções em andamento voltam do atom 'runs' (um guardado estragado vale como
+    // nenhum); a lista de tarefas e o lote recomeçam (o lote, com quem ainda roda)
+    runs.clear()
+    agentRun.clear()
+    forgetTasks()
+    batch.ids.clear()
+    batch.done.clear()
+    batch.fill = 0
+    teammates.clear()
+    progressSig = runsSig = null
+    progressWroteAt = -Infinity
+    progressBusy = false
+    lastBand = null
+    // o que já está guardado é o ponto de partida: o tique só grava o que sair diferente (um
+    // recarregamento sem nada mudado não grava nada; uma barra velha sai no 1º tique)
+    try {
+      const saved = await read($, savedRuns)
+      runsSig = JSON.stringify(saved) ?? null
+      for (const run of loadRuns(saved)) {
+        runs.set(run.runId, run)
+        for (const id of run.agents.keys()) agentRun.set(id, run.runId)
+      }
+    } catch {
+      // sem execução guardada
+    }
+    try {
+      const shown = await read($, progress)
+      progressSig = JSON.stringify(shown) ?? null
+      progressNow = progressOf(shown)
+    } catch {
+      // sem barra guardada
+    }
+    for (const id of running.keys()) if (!agentRun.has(id)) batch.ids.add(id)
     await readStanding($)
     try {
       sessionKey = await $.session.id()
@@ -1105,6 +1460,23 @@ export const register: Register = on => {
       sequencia_min: streakStartAt >= 0 ? Math.round((now - streakStartAt) / 60_000) : null,
       ultracode_motivos: { turno: ultraTurn, conversa: ultraSession, workflow: ultraWorkflow, sobra: ultraGrace, configuracao: standingSeen },
       faixa_lendo: bandPollersOn,
+      progresso: {
+        barra: progressNow,
+        encaixe: lastBand,
+        execucoes: [...runs.values()].map(r => ({
+          id: r.runId,
+          nome: r.name,
+          fases: r.phases,
+          fase: r.at,
+          cheio: Math.round(r.fill * 100) / 100,
+          agentes: r.agents.size,
+          terminados: r.done,
+          fim: r.end || null,
+          lancada: r.launched > 0,
+        })),
+        tarefas: { total: tasks.size, feitas: [...tasks.values()].filter(t => t.status === 'completed').length },
+        lote: { iniciados: batchIds().length, terminados: batchIds().filter(id => batch.done.has(id)).length },
+      },
       statusline: (await read($, status)).map(l => l.map(s => s.t).join('')),
     }
     return { result: JSON.stringify(report, null, 1) }
@@ -1117,6 +1489,9 @@ export const register: Register = on => {
       wantActivity = activityFor(e.tool)
     } else {
       lastSeen.set(e.agentId, startedAt)
+      // uma ferramenta de um agente de workflow é um sinal de vida da execução (o corte de 30 min)
+      const run = runs.get(agentRun.get(e.agentId) ?? '')
+      if (run) run.touched = true
       // a primeira ferramenta de um ajudante é pista da fantasia (se o rótulo não disse nada); o
       // ToolSearch só carrega ferramentas e não diz a tarefa: vale a que vem depois dele
       const m = running.has(e.agentId) ? meet(e.agentId) : crew.get(e.agentId)
@@ -1138,6 +1513,12 @@ export const register: Register = on => {
       if (e.tool === 'Workflow' && !e.agentId && ran.deny === undefined && !ran.isError) {
         ultraWorkflow = true
         await setUltra($, true)
+        // a barra de progresso começa (só a execução local; o tique lê o resto)
+        noteWorkflow(e as unknown as Record<string, unknown>, ran.result, startedAt)
+      }
+      // a lista de tarefas do agente principal
+      if (!e.agentId && ran.deny === undefined && !ran.isError && (e.tool === 'TaskCreate' || e.tool === 'TaskUpdate' || e.tool === 'TodoWrite')) {
+        noteTasks(e.tool, e as unknown as Record<string, unknown>, ran.result)
       }
       if (e.tool === 'Edit' || e.tool === 'Write') {
         const delta = changedLines(e.tool, ran)
@@ -1148,7 +1529,7 @@ export const register: Register = on => {
       }
       if (!e.agentId && (e.tool === 'Bash' || e.tool === 'PowerShell')) {
         const verdict = testVerdict((e as unknown as { command?: unknown }).command, ran)
-        if (verdict) await reactToTest($, verdict)
+        if (verdict) await react($, verdict === 'pass' ? 'pass' : 'oops')
       }
     } catch {
       // contar linhas e soltar fogos é enfeite: nunca atrapalha a ferramenta
@@ -1208,6 +1589,11 @@ export const register: Register = on => {
       const id = e.agentId
       const wasHere = running.delete(id)
       ended.add(id)
+      // a barra: o agente terminou (bem só com 'answer'); o tique refaz as contas. A cópia das
+      // execuções é gravada já, como a de quem roda abaixo: um recarregamento antes do tique
+      // perderia esse fim (o turn.complete não se repete). O desenho não lê 'runs': não pisca.
+      if (endRunAgent(id, e.reason === 'answer')) await flushRuns($).catch(() => undefined)
+      if (batch.ids.has(id)) batch.done.add(id)
       if (running.size === 0) ultraGrace = false // o último do turno ultracode: a sobra acaba agora
       if (wasHere && e.reason === 'answer' && bandPollersOn) leaving.set(id, null)
       else forget(id)
@@ -1247,6 +1633,7 @@ export const register: Register = on => {
     lastSeen.set(e.agent_id, await $.clock.now())
     meet(e.agent_id).type ??= e.agent_type
     teamDirty = true
+    batch.ids.add(e.agent_id) // o lote da barra (os de workflow saem da conta no tique)
     return next(e)
   })
 
@@ -1261,12 +1648,45 @@ export const register: Register = on => {
         m.type = e.subagentType
         if (e.workflow) m.index = e.workflow.agentIndex
         teamDirty = true
+        // a barra: o agente entra na execução dele (a fase sai do rótulo; o meta.json, só no tique)
+        if (e.workflow?.runId) noteRunAgent(e.workflow.runId, r.agentId, e.description)
       }
+      if (r.agentId && e.isTeammate) teammates.add(r.agentId)
     } catch {
       // a fantasia é enfeite: nunca atrapalha o ajudante
     }
     return r
   }).catch(($, e, next) => next(e))
+
+  // A lista de tarefas, pelos ganchos clássicos (só do agente principal). Os dois SÓ OLHAM: anotam
+  // em memória e devolvem a resposta intocada (os dois podem ser bloqueados; quem decide é outro).
+  on('classic.TaskCreated', async ($, e, next) => {
+    const r = await next(e)
+    try {
+      // só conta se ninguém abaixo bloqueou a criação (aí o motor apaga a tarefa e a ferramenta falha)
+      if (!e.agent_id && e.task_id && !r.block) {
+        taskOf(e.task_id, e.task_subject ?? '')
+        tasksTouched = true
+      }
+    } catch {
+      // a barra é enfeite
+    }
+    return r
+  })
+
+  on('classic.TaskCompleted', async ($, e, next) => {
+    const r = await next(e)
+    try {
+      // só conta como feita se ninguém abaixo bloqueou a conclusão
+      if (!e.agent_id && e.task_id && !r.block) {
+        taskOf(e.task_id, e.task_subject ?? '').status = 'completed'
+        tasksTouched = true
+      }
+    } catch {
+      // idem
+    }
+    return r
+  })
 
   // O Claude parou esperando o seu sim: o Clawd chama você. O pedido (PermissionRequest) é o sinal
   // principal; o aviso "permission_prompt" (Notification) só vale de reserva, se o pedido não chegou.
@@ -1309,6 +1729,7 @@ export const register: Register = on => {
       sessionKey = await $.session.id().catch(() => sessionKey)
       await update($, lines, () => ({ added: 0, removed: 0 }))
       statusDirty = true
+      forgetTasks() // a lista de tarefas do motor recomeça (do "1"); o tique tira a velha da faixa
     }
     if (e.source === 'resume') {
       // o /resume troca de conversa sem reiniciar o mod: as linhas e o esforço passam a ser os dela
@@ -1320,6 +1741,7 @@ export const register: Register = on => {
         const savedEffort = await $.store.get(`effort:${id}`).catch(() => undefined)
         effort = typeof savedEffort === 'string' ? savedEffort : undefined
         statusDirty = true
+        forgetTasks() // a lista de tarefas é a da outra conversa
       }
     }
     return next(e)
@@ -1331,8 +1753,21 @@ export const register: Register = on => {
       await stopAsking($).catch(() => undefined)
       await noteEffort($, e.effort?.level)
       await touchSession($)
-      ultraWorkflow = (e.background_tasks ?? []).some(t => t.type === 'workflow')
+      const bg = e.background_tasks ?? []
+      ultraWorkflow = bg.some(t => t.type === 'workflow')
       await setUltra($, ultraWanted())
+      // a barra: uma execução que sumiu da lista acabou; o tique confere o arquivo final já e, se
+      // ele não vier, decide pelos agentes
+      const now = await $.clock.now()
+      for (const run of runs.values()) {
+        if (!run.launched || run.end) continue
+        const alive = bg.some(t => t.type === 'workflow' && ((!!run.taskId && t.id === run.taskId) || (!!t.name && t.name === run.name)))
+        if (alive) run.overAt = -1
+        else if (run.overAt < 0) {
+          run.overAt = now
+          run.checkAt = 0
+        }
+      }
     }
     return next(e)
   })
@@ -1395,6 +1830,7 @@ export const register: Register = on => {
     const mates = teamOf(await read($, team))
     const boom = await read($, fireworks)
     const isUltra = await read($, ultra)
+    const prog = progressOf(await read($, progress)) // um valor velho ou estragado vira "sem barra"
     await read($, taps) // cada tapinha que acerta o Clawd redesenha a faixa na hora
 
     // A statusline dele, mais o clima ao lado da pasta.
@@ -1413,6 +1849,15 @@ export const register: Register = on => {
     const travel = laneEst - PAD - (BOX_W + helpersZone(mates.length, cap)) * CELL
     const parked = travel < PARK_PX
     const height = sideBySide ? Math.max(LANE_MIN_H, Math.round(rows.length * LINE_PX)) : LANE_MIN_H
+    // A barra de progresso entra DEPOIS das medidas acima: nenhuma delas muda com ela. Cabendo mais
+    // uma linha sem a faixa crescer (a statusline larga, de 2 linhas), ela é a 1ª linha (a coluna
+    // encosta embaixo, as linhas de hoje não se mexem); senão, um segmento no fim de uma linha que
+    // já existe. O que não cabe na largura de hoje fica de fora; na faixa empilhada a coluna tem a
+    // largura da faixa (e corta cada linha ali), então o segmento nunca passa dela.
+    const ownLine = sideBySide && rows.length > 0 && (rows.length + 1) * LINE_PX <= LANE_MIN_H
+    const placed: Placed = placeBar(rows, prog, ownLine, sideBySide ? Infinity : e.props.bodyColumns)
+    lastCap = cap
+    lastBand = { onde: placed.where || null, formato: placed.format || null, colunas_texto: textCols, lado_a_lado: sideBySide, altura: height, pista_px: Math.round(laneEst), baia: cap }
 
     // a pista nunca passa de LANE_W: com isso o SVG fica sempre abaixo do limite do app
     const sceneTravel = Math.min(Math.max(80, travel), LANE_W - PAD - BOX_W * CELL)
@@ -1448,7 +1893,7 @@ export const register: Register = on => {
     const text = rows.length
       ? [
           <Box flexDirection="column" flexShrink={0}>
-            {rows.map(spans => (
+            {placed.rows.map(spans => (
               <Text wrap="truncate">
                 {spans.map(s => (
                   <Text {...(s.c ? { color: s.c } : {})} {...(s.b ? { bold: true } : {})} {...(s.d ? { dimColor: true } : {})}>

@@ -9,7 +9,8 @@ import type { CostumeHints } from './fantasias'
 import { BOX_H, BOX_W, CELL, fitLane, LANE_W, laneSvg, PAD, phased, SVG_SAFE } from './lane'
 import { buildScene, stand, WALK_PX } from './scenes'
 import type { Flags, SceneKind, Spec, Step } from './scenes'
-import type { Costume, TeamMate } from '../types'
+import type { Costume, Progress, StatusSpan, TeamMate } from '../types'
+import { advance, barFor, cols, endOf, endStatus, finalFileOf, finishRun, lineCols, loadRuns, newRun, parsePhases, phaseOfLabel, phaseOfTitle, pickLine, placeBar, progressOf, relaunch, runProgress, saveRun, sessionDirOf, setPhases, settled, verdictOf } from './progresso'
 
 const band = (isWorking: boolean) => ({
   component: 'AbovePrompt' as const,
@@ -31,7 +32,7 @@ const WIN_DENIED = 'NoData|Denied|NaN|NaN|NaN'
 
 const run = (stdout: string) => ({ exitCode: 0, stdout, stderr: '', isStdoutTruncated: false, isStderrTruncated: false })
 
-type WorldOptions = { now?: number; sid?: () => string; settings?: () => Record<string, unknown>; store?: Record<string, unknown>; ownStore?: Map<string, unknown>; statusline?: string; env?: Record<string, string>; proc?: (argv: readonly string[]) => ReturnType<typeof run> }
+type WorldOptions = { now?: number; sid?: () => string; settings?: () => Record<string, unknown>; store?: Record<string, unknown>; ownStore?: Map<string, unknown>; statusline?: string; env?: Record<string, string>; proc?: (argv: readonly string[], env?: Record<string, string>) => ReturnType<typeof run> }
 
 // O teste faz o papel do motor: a sessão, a statusline, a configuração e a internet.
 function world(on: On, opts: WorldOptions = {}) {
@@ -65,7 +66,7 @@ function world(on: On, opts: WorldOptions = {}) {
   on('tool.register', () => ({ value: { tool: 'mcp__clawd__recarregar' } }))
   on('process.run', ($, e) => {
     envs.push(e.init?.env as Record<string, string> | undefined)
-    if (opts.proc) return { value: opts.proc(e.argv) }
+    if (opts.proc) return { value: opts.proc(e.argv, e.init?.env as Record<string, string> | undefined) }
     return { value: run(opts.statusline ?? STATUSLINE_OUT) }
   })
   on('http.fetch', ($, e) => {
@@ -1651,5 +1652,1169 @@ test('equipe: teammate com papel na lista do motor não entra na baia (só os aj
   const ui = await $.ui.mount({ plugin: 'clawd', surface: 'desktop', ...band(false) })
   await clock.advance(3_000)
   expect(((await report($)).equipe as { id: string; fantasia: string }[]).map(m => [m.id, m.fantasia])).toEqual([['ag-1', 'piloto']])
+  await ui.unmount()
+})
+
+// ---------- a barra de progresso ----------
+
+const SCRIPT3 = [
+  'export const meta = {',
+  "  name: 'clawd-teste',",
+  "  description: 'três fases: mapear, desenhar e julgar',",
+  '  phases: [',
+  "    { title: 'Mapear', detail: 'a faixa e a pista' },",
+  "    { title: 'Desenhar', detail: 'três propostas' },",
+  "    { title: 'Julgar', detail: 'duas lentes' },",
+  '  ],',
+  '}',
+  "phase('Mapear')",
+].join('\n')
+
+const SESSION = 'C:/Users/voce/.claude/projects/C--Users-voce/sessao-1'
+const tdir = (runId: string) => `${SESSION}/subagents/workflows/${runId}`
+const finalOf = (runId: string) => `${SESSION}/workflows/${runId}.json`
+const scriptOf = (runId: string) => `${SESSION}/workflows/scripts/clawd-teste-${runId}.js`
+// o resultado do Workflow como o motor devolve numa execução local (caminhos com '\', como no Windows)
+const launched = (runId = 'wf_1', extra: Record<string, unknown> = {}) => ({
+  status: 'async_launched',
+  taskId: `t_${runId}`,
+  taskType: 'local_workflow',
+  workflowName: 'clawd-teste',
+  runId,
+  transcriptDir: tdir(runId).replace(/\//g, '\\'),
+  scriptPath: scriptOf(runId).replace(/\//g, '\\'),
+  ...extra,
+})
+
+// A statusline como o script de verdade escreve: larga (2 linhas, com uma em branco no meio) ou
+// estreita (3 ou 4 linhas, para 45 colunas), com ou sem a linha do 🌿.
+const rgbOf = (r: number, g: number, b: number) => `\x1b[38;2;${r};${g};${b}m`
+const RST = '\x1b[0m'
+const usageRow = (w: number) =>
+  `⏳ ${rgbOf(0, 200, 80)}█${rgbOf(60, 60, 60)}${'█'.repeat(w - 1)}${RST} ${rgbOf(0, 200, 80)}18%${RST} ${rgbOf(110, 110, 110)}(2h10m)${RST} ` +
+  `📅 ${rgbOf(0, 200, 80)}█${rgbOf(60, 60, 60)}${'█'.repeat(w - 1)}${RST} ${rgbOf(0, 200, 80)}11%${RST} ${rgbOf(110, 110, 110)}(2d4h)${RST}`
+const REPO_SEG = `📂 \x1b[1m${rgbOf(235, 200, 0)}voce${RST}`
+const DIFF_SEG = `${rgbOf(0, 200, 80)}+12${RST} ${rgbOf(220, 40, 20)}-3${RST}`
+const MODEL_SEG = `${rgbOf(210, 90, 220)}🌀 Opus 5.5 (1M context)${RST} ${rgbOf(110, 110, 110)}MEDIUM${RST} 🧠 ${rgbOf(0, 200, 80)}7%${RST}`
+const wideStatus = (branch: boolean) => `${REPO_SEG}${branch ? ` \x1b[1m${rgbOf(0, 220, 220)}🌿 (barra)${RST}` : ''} ${DIFF_SEG}\n\n${MODEL_SEG} ${usageRow(10)}`
+const narrowStatus = (branch: boolean) =>
+  [`${REPO_SEG} ${DIFF_SEG}`, branch ? `\x1b[1m${rgbOf(0, 220, 220)}🌿 barra${RST}` : '', MODEL_SEG, usageRow(4)].filter(Boolean).join('\n')
+// o mod pede 45 colunas quando o formato largo não cabe: aí o script responde com o estreito
+const statuslineFor = (branch: boolean) => (_argv: readonly string[], env?: Record<string, string>) =>
+  run(env?.CLAUDE_STATUSLINE_COLS === '45' ? narrowStatus(branch) : wideStatus(branch))
+
+const bandAt = (bodyColumns: number, isWorking = false) => ({
+  component: 'AbovePrompt' as const,
+  props: { hasSurvey: false, isWorking, maxRows: 12, bodyColumns, scroll: { offset: 0, bodyRows: 12 }, view: {} },
+})
+
+type BarOpts = WorldOptions & { files?: Map<string, string>; workflow?: (e: Record<string, unknown>) => unknown; blockCreated?: () => boolean }
+
+// O motor da barra no teste: o Workflow lança, os agentes nascem com id novo, as ferramentas de
+// tarefa respondem como as de verdade, e o sistema de arquivos é um mapa (caminho -> texto).
+function barWorld(on: On, opts: BarOpts = {}) {
+  const w = world(on, { ...opts, env: { CLAWD_WEATHER: 'off', ...opts.env } })
+  const files = opts.files ?? new Map<string, string>()
+  const reads: string[] = []
+  const slashed = (p: string) => p.replace(/\\/g, '/')
+  let n = 0
+  let taskN = 0
+  on('agent.spawn', () => ({ model: 'claude-opus-5-5', agentId: `ag-${++n}` }))
+  on('classic.SubagentStart', () => ({}))
+  // um gancho de quem usa o Claude Code pode bloquear a criação (aí o motor apaga a tarefa)
+  on('classic.TaskCreated', () => (opts.blockCreated?.() ? { block: 'proibido por um gancho' } : {}))
+  on('classic.TaskCompleted', () => ({}))
+  on('classic.Stop', () => ({}))
+  on('classic.SessionStart', () => ({}))
+  on('agent.list', () => ({ value: [] }))
+  on('turn.complete', () => ({ text: '' }))
+  on('turn.start', ($, e) => ({ turnId: e.turnId }))
+  on('tool.call', ($, e) => {
+    const i = e as unknown as Record<string, unknown>
+    if (e.tool === 'Workflow') return { result: (opts.workflow ? opts.workflow(i) : launched()) as never }
+    if (e.tool === 'TaskCreate') return { result: { task: { id: String(++taskN), subject: String(i.subject) } } as never }
+    if (e.tool === 'TaskUpdate')
+      return { result: { success: true, taskId: String(i.taskId), updatedFields: [], ...(i.status ? { statusChange: { from: 'pending', to: String(i.status) } } : {}) } as never }
+    if (e.tool === 'TodoWrite') return { result: { oldTodos: [], newTodos: i.todos } as never }
+    return { result: { stdout: 'ok', stderr: '', interrupted: false } as never }
+  })
+  on('fs.read', ($, e) => {
+    const p = slashed(e.path)
+    reads.push(p)
+    const text = files.get(p)
+    if (text === undefined) throw new Error(`ENOENT: ${p}`)
+    return { value: text }
+  })
+  on('fs.exists', ($, e) => ({ value: files.has(slashed(e.path)) }))
+  // a data de cada arquivo: a marcada em `stamps` ou, sem marca, agora (um arquivo recém-gravado)
+  const stamps = new Map<string, number>()
+  on('fs.stat', ($, e) => {
+    const p = slashed(e.path)
+    if (!files.has(p)) throw new Error(`ENOENT: ${e.path}`)
+    return { value: { kind: 'file' as const, size: 10, mtimeMs: stamps.get(p) ?? w.clock.now(), isLink: false } }
+  })
+  return { ...w, files, reads, stamps }
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const launch = ($: any, input: Record<string, unknown> = { script: SCRIPT3 }) => $.tool.call({ tool: 'Workflow', ...input })
+
+// Um agente de workflow nasce (agent.spawn) e começa (SubagentStart), como o motor faz.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+async function wfAgent($: any, description: string, agentIndex: number, runId = 'wf_1'): Promise<string> {
+  const r = await $.agent.spawn({ ...SPAWN, description, subagentType: 'workflow-subagent', workflow: { runId, agentIndex } })
+  await $.classic.SubagentStart({ agent_id: r.agentId, agent_type: 'workflow-subagent' })
+  return String(r.agentId)
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const finishAgent = ($: any, agentId: string, reason = 'answer') =>
+  $.turn.complete({ answer: 'ok', durationMs: 5, isAborted: false, turnId: `fim-${agentId}`, agentId, reason })
+
+// As linhas de texto da faixa (cada <Text wrap="truncate"> é uma linha), como aparecem.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const linesOf = async (ui: any): Promise<string[]> =>
+  ((await ui.findAll({ type: 'Text' })) as { props: Record<string, unknown>; text: string }[]).filter(t => t.props.wrap === 'truncate').map(t => t.text)
+
+type BarReport = {
+  barra: Progress | null
+  encaixe: Record<string, unknown> | null
+  execucoes: Record<string, unknown>[]
+  tarefas: { total: number; feitas: number }
+  lote: { iniciados: number; terminados: number }
+}
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const barNow = async ($: any) => (await report($)).progresso as BarReport
+
+const P3 = (over: Partial<Progress> = {}): Progress => ({ k: 'wf', name: 'clawd-teste', phases: ['Mapear', 'Desenhar', 'Julgar'], at: 1, fill: 0.6, done: 4, all: 0, end: '', more: 0, ...over })
+const spansText = (spans: readonly StatusSpan[]) => spans.map(x => x.t).join('')
+const blockColors = (spans: readonly StatusSpan[]) => spans.flatMap(x => [...x.t].filter(ch => ch === '█').map(() => x.c))
+
+test('barra: meta.phases sai do script (objeto ou texto solto, com comentários); sem meta legível, nada', () => {
+  expect(parsePhases(SCRIPT3)).toEqual(['Mapear', 'Desenhar', 'Julgar'])
+  const tricky = [
+    'export const meta = {',
+    "  name: 'x', // phases: ['falsa']",
+    '  description: "fala de phases: [ no texto",',
+    "  phases: [{ title: 'Revisão final', detail: 'a, b' }, 'Corrigir',],",
+    '}',
+  ].join('\n')
+  expect(parsePhases(tricky)).toEqual(['Revisão final', 'Corrigir'])
+  expect(parsePhases("export const meta = { name: 'x', phases: [] }")).toEqual([])
+  expect(parsePhases("export const meta = { name: 'x' }")).toBe(null)
+  expect(parsePhases('const x = 1')).toBe(null)
+  expect(parsePhases('export const meta = { phases: [{ title: `fase ${n}` }] }')).toBe(null) // template com conta não é literal
+  expect(parsePhases("export const meta = { phases: [{ title: 'Cortado'")).toBe(null)
+  expect(parsePhases(undefined)).toBe(null)
+})
+
+test('barra: a fase de um agente pelo rótulo (antes de ":" ou a 1ª palavra) e pelo título do meta.json', () => {
+  const phases = ['Mapear', 'Desenhar', 'Julgar']
+  expect(phaseOfLabel('mapear: faixa', phases)).toBe(0)
+  expect(phaseOfLabel('Desenhar trilho', phases)).toBe(1)
+  expect(phaseOfLabel('julgar: técnica', phases)).toBe(2)
+  expect(phaseOfLabel('tarefa 7', phases)).toBe(-1)
+  expect(phaseOfLabel('corrigir e testar', ['Implementar', 'Revisar', 'Corrigir'])).toBe(2)
+  expect(phaseOfLabel('revisão final: conjunto', ['Código', 'Revisão final'])).toBe(1)
+  expect(phaseOfLabel('código: x', ['Código', 'Revisão final'])).toBe(0)
+  expect(phaseOfLabel('mapear: x', [])).toBe(-1)
+  expect(phaseOfTitle('Desenhar', phases)).toBe(1)
+  expect(phaseOfTitle('codigo', ['Código'])).toBe(0)
+  expect(phaseOfTitle(undefined, phases)).toBe(-1)
+})
+
+test('barra: a escada G/M/S/XS escolhe o formato mais rico que cabe; abaixo de 6 colunas, nada', () => {
+  const show = (p: Progress, budget: number, own: boolean) => {
+    const b = barFor(p, budget, own)
+    return b ? [b.format, spansText(b.spans)] : null
+  }
+  const p = P3()
+  expect(show(p, 80, true)).toEqual(['G', '🧩 clawd-teste · Desenhar █████ █████ █████'])
+  expect(show(p, 80, false)).toEqual(['M', '🧩 Desenhar █████ █████ █████']) // G só na linha própria
+  expect(show(p, 26, false)).toEqual(['M', '🧩 Desenhar ████ ████ ████'])
+  expect(show(p, 20, false)).toEqual(['S', '🧩 ██ ██ ██'])
+  expect(show(p, 8, false)).toEqual(['XS', '🧩 2/3'])
+  expect(show(p, 5, true)).toBe(null)
+  // nada passa do orçamento, em largura nenhuma
+  for (let b = 0; b <= 90; b++) {
+    for (const own of [true, false]) {
+      const r = barFor(p, b, own)
+      if (r) expect(lineCols(r.spans)).toBeLessThanOrEqual(b)
+      else expect(b).toBeLessThan(6)
+    }
+  }
+  // os blocos: a fase de trás cheia (degradê do laranja do Clawd ao violeta), a atual em 60%
+  // (3 de 5), a da frente vazia; o nome da fase em negrito laranja, o do workflow apagado
+  const g = barFor(p, 80, true)?.spans ?? []
+  const colors = blockColors(g)
+  expect(colors).toHaveLength(15)
+  expect(colors[0]).toBe('#d87656')
+  expect(colors.slice(0, 8).every(c => c !== '#3c3c3c')).toBe(true)
+  expect(colors.slice(8)).toEqual(Array(7).fill('#3c3c3c'))
+  expect(g.find(x => x.t === 'Desenhar')).toMatchObject({ c: '#D87656', b: true })
+  expect(g.find(x => x.t.includes('clawd-teste'))?.d).toBe(true)
+  // sem fases: barra contínua e os terminados (o número só cresce; nunca um total)
+  const flat = P3({ phases: [], at: 0, fill: 0.55, done: 5 })
+  expect(show(flat, 80, true)).toEqual(['G', '🧩 clawd-teste ██████████ 5✓'])
+  expect(show(flat, 80, false)).toEqual(['M', '🧩 ██████████ 5✓'])
+  expect(show(flat, 11, false)).toEqual(['S', '🧩 ████ 5✓'])
+  expect(show(flat, 6, false)).toEqual(['XS', '🧩 5✓'])
+  // a lista de tarefas mostra o total (é o que o modelo planejou); o lote mostra os terminados
+  const todo: Progress = { k: 'tasks', name: 'Rodando os testes', phases: [], at: 0, fill: 0.6, done: 3, all: 5, end: '', more: 0 }
+  expect(show(todo, 80, true)).toEqual(['M', '📋 Rodando os testes ██████████ 3/5'])
+  expect(show(todo, 12, true)).toEqual(['S', '📋 ████ 3/5'])
+  expect(show({ ...todo, k: 'agents', name: '', done: 1, all: 0 }, 80, true)).toEqual(['M', '🤖 ██████████ 1✓'])
+  // o fim: ✅ com o nome em verde e tudo cheio; ❌ com a fase e a barra congelada; o "+1"
+  const ok = barFor(P3({ end: 'ok' }), 80, true)
+  expect(ok && spansText(ok.spans)).toBe('✅ clawd-teste █████ █████ █████')
+  expect(ok?.spans.find(x => x.t === 'clawd-teste')).toMatchObject({ c: '#00c850', b: true })
+  expect(blockColors(ok?.spans ?? []).includes('#3c3c3c')).toBe(false)
+  expect(blockColors(ok?.spans ?? []).pop()).toBe('#a78bfa')
+  expect(show(P3({ end: 'ok' }), 8, false)).toEqual(['XS', '✅ 3/3'])
+  expect(show(P3({ end: 'fail' }), 80, false)).toEqual(['M', '❌ Desenhar █████ █████ █████'])
+  expect(blockColors(barFor(P3({ end: 'fail' }), 80, false)?.spans ?? [])).toEqual(colors)
+  expect(show(P3({ more: 1 }), 80, false)).toEqual(['M', '🧩 Desenhar █████ █████ █████ +1'])
+})
+
+test('barra: nunca recua (a fase só anda para a frente; a atual tem piso e para em 90% até acabar)', () => {
+  const run = newRun('wf_x')
+  setPhases(run, ['Mapear', 'Desenhar', 'Julgar'])
+  const add = (id: string, phase: number) => run.agents.set(id, { label: id, phase, done: false, ok: false, metaTried: false })
+  const end = (id: string, ok = true) => {
+    const a = run.agents.get(id)
+    if (a) Object.assign(a, { done: true, ok })
+  }
+  add('a', 0)
+  add('b', 0)
+  advance(run)
+  expect([run.at, run.fill]).toEqual([0, 0])
+  end('a')
+  advance(run) // 1 de 2, com a folga de +1 de quem ainda pode vir: 1/3
+  expect([run.at, run.fill]).toEqual([0, 1 / 3])
+  add('c', 0) // um agente novo na fase atual: 1/4, mas o piso segura o 1/3
+  advance(run)
+  expect([run.at, run.fill]).toEqual([0, 1 / 3])
+  end('b')
+  end('c')
+  advance(run) // 3 de 3: 3/4 (o teto de 90% só chega com fases grandes), até a fase acabar de verdade
+  expect([run.at, run.fill]).toEqual([0, 0.75])
+  add('d', 1) // a fase seguinte começou: a anterior enche e a atual recomeça
+  advance(run)
+  expect([run.at, run.fill]).toEqual([1, 0])
+  add('e', 0) // um atrasado da fase de trás não faz o índice voltar
+  advance(run)
+  expect(run.at).toBe(1)
+  expect(run.done).toBe(3)
+  expect(verdictOf(run)).toBe('fail') // nem todos terminaram
+  finishRun(run, 'fail', 1)
+  end('d')
+  advance(run) // falhou: congela onde estava
+  expect([run.at, run.fill, run.end]).toEqual([1, 0, 'fail'])
+  const good = newRun('wf_y')
+  setPhases(good, ['A'])
+  good.agents.set('x', { label: 'a: x', phase: 0, done: true, ok: true, metaTried: false })
+  expect(verdictOf(good)).toBe('ok')
+  finishRun(good, 'ok', 1)
+  advance(good)
+  expect(good.fill).toBe(1)
+  // sem fases: a barra contínua tem a mesma conta e o mesmo piso
+  const flat = newRun('wf_z')
+  setPhases(flat, null)
+  flat.agents.set('p', { label: 'p', phase: -1, done: true, ok: true, metaTried: false })
+  flat.agents.set('q', { label: 'q', phase: -1, done: false, ok: false, metaTried: false })
+  advance(flat)
+  expect(flat.fill).toBe(1 / 3)
+  flat.agents.set('r', { label: 'r', phase: -1, done: false, ok: false, metaTried: false })
+  advance(flat)
+  expect([flat.fill, flat.done]).toEqual([1 / 3, 1])
+  // quem terminou com erro (ou abortado) não enche a barra nem entra no número ✓
+  flat.agents.set('s', { label: 's', phase: -1, done: true, ok: false, metaTried: false })
+  advance(flat)
+  expect([flat.fill, flat.done]).toEqual([1 / 3, 1])
+  // sem nenhum agente conhecido não há prova de fim: nem ✅ pela reserva, nem "tudo pronto"
+  const empty = newRun('wf_v')
+  expect([verdictOf(empty), settled(empty), endOf(empty, 'completed'), endOf(empty, 'killed')]).toEqual(['fail', false, 'ok', 'fail'])
+  // 'completed' com todo agente em erro é ❌; com algum bem, ✅
+  empty.agents.set('e', { label: 'e', phase: -1, done: true, ok: false, metaTried: false })
+  expect(endOf(empty, 'completed')).toBe('fail')
+  empty.agents.set('f', { label: 'f', phase: -1, done: true, ok: true, metaTried: false })
+  expect(endOf(empty, 'completed')).toBe('ok')
+  // retomada: a fase fica, o preenchimento recomeça, os agentes de antes não contam
+  const again = newRun('wf_r')
+  setPhases(again, ['A', 'B'])
+  again.agents.set('x', { label: 'a: x', phase: 0, done: true, ok: true, metaTried: false })
+  again.agents.set('y', { label: 'b: y', phase: 1, done: true, ok: true, metaTried: false })
+  advance(again)
+  expect([again.at, again.fill]).toEqual([1, 0.5])
+  finishRun(again, 'ok', 1)
+  relaunch(again)
+  again.end = ''
+  advance(again)
+  expect([again.at, again.fill, again.seen]).toEqual([1, 0, null])
+  again.agents.set('z', { label: 'b: z', phase: 1, done: true, ok: true, metaTried: false })
+  advance(again)
+  expect([again.at, again.fill, verdictOf(again), settled(again)]).toEqual([1, 0.5, 'ok', true])
+})
+
+test('barra: fases sobrepostas (esteira) — a fase de trás só enche quando ninguém dela roda mais', () => {
+  const run = newRun('wf_esteira')
+  setPhases(run, ['Revisar', 'Verificar'])
+  const add = (id: string, phase: number) => run.agents.set(id, { label: id, phase, done: false, ok: false, metaTried: false })
+  const end = (id: string) => Object.assign(run.agents.get(id) ?? {}, { done: true, ok: true })
+  for (const id of ['r1', 'r2', 'r3']) add(id, 0)
+  end('r1')
+  add('v1', 1) // a revisão 1 já passou para a verificação; r2 e r3 ainda revisam
+  advance(run)
+  expect(run.at).toBe(1) // o nome mostrado é o da fase mais adiantada
+  expect(run.fills[0]).toBe(1 / 4) // ... mas a Revisar não aparece cheia: 1 de 3 pronta, com a folga de +1
+  expect(run.fills[1]).toBe(0)
+  // os blocos cheios são os coloridos (o vazio é o mesmo █ em #3c3c3c)
+  const filled = (b: ReturnType<typeof barFor>) => (b?.spans ?? []).filter(s => /█/.test(s.t) && s.c !== '#3c3c3c').reduce((n, s) => n + [...s.t].length, 0)
+  const bar = barFor(progressOf(runProgress(run, 0))!, 40, false)
+  expect(bar?.spans.map(s => s.t).join('')).toContain('Verificar')
+  expect(bar?.format).toBe('M')
+  expect(filled(bar)).toBe(1) // o trecho da Revisar com 1 de 5 blocos, não cheio
+  end('r2')
+  end('r3')
+  advance(run) // ninguém da Revisar roda mais: ela enche de vez
+  expect(run.fills[0]).toBe(1)
+  add('r4', 0) // um atrasado da Revisar não faz o trecho dela recuar
+  advance(run)
+  expect(run.fills[0]).toBe(1)
+  // um valor guardado por versão antiga (sem fills) desenha como antes: anteriores cheias
+  const old = progressOf({ k: 'wf', name: 'x', phases: ['A', 'B'], at: 1, fill: 0, done: 0, all: 0, end: '', more: 0 })
+  expect(old?.fills).toBeUndefined()
+  expect(filled(barFor(old!, 40, false))).toBe(5)
+  // e uma execução guardada sem fills volta com as anteriores cheias e a atual pelo fill
+  const back = loadRuns([{ runId: 'wf_v', phases: ['A', 'B', 'C'], at: 1, fill: 0.5, agents: {} }])[0]
+  expect(back?.fills).toEqual([1, 0.5, 0])
+})
+
+test('barra: o encaixe — linha própria quando cabe sem crescer; senão segmento na linha do 🌿, do 📂 ou na mais curta', () => {
+  const L = (t: string): StatusSpan[] => [{ t }]
+  const wide = [L('📂 voce 🌿 (barra) +12 -3'), L('🌀 Opus 5.5 (1M context) MEDIUM 🧠 7% ⏳ ██████████ 18% (2h10m)')]
+  const own = placeBar(wide, P3(), true)
+  expect(own.where).toBe('linha')
+  expect(own.rows.slice(1)).toEqual(wide)
+  expect(spansText(own.rows[0] ?? [])).toBe('🧩 clawd-teste · Desenhar █████ █████ █████')
+  const narrow = [L('📂 voce +12 -3'), L('🌿 barra'), L('🌀 Opus 5.5 (1M context) MEDIUM 🧠 7%'), L('⏳ ████ 18% (2h10m) 📅 ████ 11% (2d4h)')]
+  const seg = placeBar(narrow, P3(), false)
+  expect([seg.where, seg.format, seg.rows.length]).toEqual(['segmento', 'M', 4])
+  expect(spansText(seg.rows[1] ?? [])).toBe('🌿 barra  🧩 Desenhar ███ ███ ███')
+  expect(seg.rows.filter((_, i) => i !== 1)).toEqual(narrow.filter((_, i) => i !== 1))
+  // a coluna nunca alarga, seja o emoji de 1 ou de 2 colunas: a linha com a barra (emoji contado
+  // como 2) não passa da mais larga de antes com o emoji contado como 1
+  for (const emoji of [1, 2]) {
+    const widest = Math.max(...narrow.map(l => lineCols(l, emoji)))
+    expect(lineCols(seg.rows[1] ?? [], 2)).toBeLessThanOrEqual(widest)
+    expect(lineCols(own.rows[0] ?? [], 2)).toBeLessThanOrEqual(Math.max(...wide.map(l => lineCols(l, emoji))))
+  }
+  // sem 🌿, a do 📂 (com menos espaço: o formato encolhe)
+  const noBranch = narrow.filter((_, i) => i !== 1)
+  const folder = placeBar(noBranch, P3(), false)
+  expect([folder.where, folder.format, spansText(folder.rows[0] ?? [])]).toEqual(['segmento', 'S', '📂 voce +12 -3  🧩 ██ ██ ██'])
+  // sem 🌿 nem 📂: a mais curta
+  expect(pickLine([L('🌀 Opus 5.5 MEDIUM'), L('⏳ 18%'), L('xx yy zz')])).toBe(1)
+  // a linha escolhida já é a mais larga: não sobra lugar, nada entra
+  const full = [L('📂 um-repositorio-com-nome-comprido'), L('🌀 Opus')]
+  expect(placeBar(full, P3(), false)).toEqual({ rows: full, where: '', format: '' })
+  expect(placeBar(narrow, null, false).rows).toBe(narrow)
+  expect(placeBar([], P3(), true).where).toBe('')
+  expect(cols('📂 voce  🌧️ 22°')).toBe(15) // emoji conta 2; o seletor de variação, nada
+})
+
+test('barra: o que vem guardado é conferido (lixo não quebra nada; a execução volta igual)', () => {
+  for (const junk of [null, 7, 'x', [1, 2], { k: 'zzz' }]) expect(progressOf(junk)).toBe(null)
+  expect(progressOf({ k: 'wf', name: 42, phases: 'x', at: -3, fill: 9, done: 'muitos', end: 'talvez', more: -1 })).toEqual({
+    k: 'wf',
+    name: '',
+    phases: [],
+    at: 0,
+    fill: 1,
+    done: 0,
+    all: 0,
+    end: '',
+    more: 0,
+  })
+  expect(progressOf(P3())).toEqual(P3())
+  const run = newRun('wf_1')
+  setPhases(run, ['A', 'B'])
+  run.name = 'x'
+  run.dir = 'C:/s/subagents/workflows/wf_1'
+  run.launched = 1
+  run.agents.set('a', { label: 'a: x', phase: 0, done: true, ok: true, old: true, metaTried: true })
+  run.seen = 1_700_000_000_123
+  const back = loadRuns(JSON.parse(JSON.stringify([saveRun(run)])))
+  expect(back.map(saveRun)).toEqual([saveRun(run)])
+  expect(loadRuns('x')).toEqual([])
+  expect(loadRuns([7, { runId: 3 }, { runId: 'wf_2', agents: 'x', phases: [1, 'A'] }]).map(r => [r.runId, r.phases, r.agents.size])).toEqual([['wf_2', ['A'], 0]])
+  expect(sessionDirOf('C:\\Users\\voce\\.claude\\projects\\p\\s1\\subagents\\workflows\\wf_1')).toBe('C:/Users/voce/.claude/projects/p/s1')
+  expect(finalFileOf(run)).toBe('C:/s/workflows/wf_1.json')
+  expect(endStatus('{"status":"completed","result":{"status":"x"}}')).toBe('completed')
+  expect(endStatus('{ cortado')).toBe('')
+})
+
+for (const width of [140, 80, 30]) {
+  for (const branch of [true, false]) {
+    test(`barra: faixa de ${width} colunas ${branch ? 'com' : 'sem'} a linha do 🌿 — a barra entra sem mudar a largura do texto, o formato nem a altura`, { timeoutMs: 60000 }, async ($, on) => {
+      const { clock } = barWorld(on, { proc: statuslineFor(branch) })
+      await start($)
+      const ui = await $.ui.mount({ plugin: 'clawd', surface: 'desktop', ...bandAt(width) })
+      await clock.advance(1_100) // o tique refaz a statusline no formato desta largura
+      const look = async () => ({
+        lines: await linesOf(ui),
+        fit: (await barNow($)).encaixe ?? {},
+        height: (await ui.find({ type: 'Svg' }))?.props.height,
+        dir: (await ui.find({ type: 'Box' }))?.props.flexDirection,
+      })
+      const before = await look()
+      expect(before.fit.onde).toBe(null)
+      expect(before.fit.lado_a_lado).toBe(width !== 30)
+      await launch($)
+      await wfAgent($, 'mapear: faixa', 1)
+      await wfAgent($, 'mapear: pista', 2)
+      await clock.advance(1_000)
+      const after = await look()
+      const measures = (f: Record<string, unknown>) => [f.colunas_texto, f.lado_a_lado, f.altura, f.pista_px, f.baia]
+      expect(measures(after.fit)).toEqual(measures(before.fit))
+      expect([after.height, after.dir]).toEqual([before.height, before.dir])
+      // a coluna de texto não alarga: nenhuma linha passa da mais larga de antes
+      expect(Math.max(...after.lines.map(l => cols(l)))).toBeLessThanOrEqual(Math.max(...before.lines.map(l => cols(l))))
+      if (width === 140) {
+        expect(after.fit.onde).toBe('linha')
+        expect(after.height).toBe(62)
+        expect(after.lines.slice(1)).toEqual(before.lines)
+        expect(after.lines[0]).toBe('🧩 clawd-teste · Mapear █████ █████ █████')
+      } else {
+        expect(after.fit.onde).toBe('segmento')
+        expect(after.lines).toHaveLength(before.lines.length)
+        const at = before.lines.findIndex(l => l.includes(branch ? '🌿' : '📂'))
+        after.lines.forEach((l, i) => {
+          if (i === at) expect(l.startsWith(`${before.lines[i]}  🧩 `)).toBe(true)
+          else expect(l).toBe(before.lines[i])
+        })
+      }
+      await ui.unmount()
+    })
+  }
+}
+
+test('barra: sem 6 colunas sobrando na linha escolhida, a barra não aparece e nada se mexe', { timeoutMs: 60000 }, async ($, on) => {
+  const { clock } = barWorld(on, { statusline: '📂 um-repositorio-com-nome-bem-comprido\n🌀 Opus 5.5\n🧠 7%' })
+  await start($)
+  const ui = await $.ui.mount({ plugin: 'clawd', surface: 'desktop', ...bandAt(30) })
+  await clock.advance(1_100)
+  const before = await linesOf(ui)
+  await launch($)
+  await wfAgent($, 'mapear: faixa', 1)
+  await clock.advance(1_000)
+  const now = await barNow($)
+  expect(now.barra?.k).toBe('wf') // ela existe, só não cabe
+  expect(now.encaixe?.onde).toBe(null)
+  expect(await linesOf(ui)).toEqual(before)
+  await ui.unmount()
+})
+
+test('barra: workflow — fase pelo rótulo e, de reserva, pelo meta.json (no tique, nunca no nascimento); nunca recua; termina pelo arquivo final com ✅ e a garra', { timeoutMs: 60000 }, async ($, on) => {
+  const { clock, files, reads } = barWorld(on, { proc: statuslineFor(true) })
+  await start($)
+  const ui = await $.ui.mount({ plugin: 'clawd', surface: 'desktop', ...bandAt(140) })
+  await clock.advance(1_100)
+  await launch($)
+  const a = await wfAgent($, 'mapear: faixa', 1)
+  await wfAgent($, 'mapear: pista', 2)
+  const c = await wfAgent($, 'sem prefixo conhecido', 3) // o rótulo não diz a fase
+  files.set(`${tdir('wf_1')}/agent-${c}.meta.json`, JSON.stringify({ agentType: 'workflow-subagent', description: 'sem prefixo conhecido', workflowPhase: 'Mapear' }))
+  expect(reads).toEqual([]) // nada é lido quando o agente nasce
+  await clock.advance(1_000)
+  expect(reads).toEqual([`${tdir('wf_1')}/agent-${c}.meta.json`]) // o script veio no pedido: só o meta.json
+  const bar = async () => (await barNow($)).barra
+  expect((await barNow($)).execucoes[0]).toMatchObject({ nome: 'clawd-teste', fases: ['Mapear', 'Desenhar', 'Julgar'], fase: 0, agentes: 3 })
+  await finishAgent($, a)
+  await clock.advance(1_000)
+  expect(Math.round(((await bar())?.fill ?? 0) * 1000)).toBe(250)
+  expect((await linesOf(ui))[0]).toBe('🧩 clawd-teste · Mapear █████ █████ █████')
+  // um agente novo na fase atual não diminui o preenchimento
+  await wfAgent($, 'mapear: extra', 4)
+  await clock.advance(1_000)
+  expect(Math.round(((await bar())?.fill ?? 0) * 1000)).toBe(250)
+  // a fase seguinte começa: o índice anda, e um atrasado da fase de trás não o faz voltar
+  await wfAgent($, 'desenhar: trilho', 5)
+  await clock.advance(1_000)
+  expect([(await bar())?.at, (await bar())?.fill]).toEqual([1, 0])
+  expect((await linesOf(ui))[0]).toBe('🧩 clawd-teste · Desenhar █████ █████ █████')
+  await wfAgent($, 'mapear: atrasado', 6)
+  await clock.advance(1_000)
+  expect((await bar())?.at).toBe(1)
+  // o arquivo final só nasce no fim: "completed" -> ✅, tudo cheio, e a garra sobe
+  files.set(finalOf('wf_1'), JSON.stringify({ runId: 'wf_1', result: { status: 'x' }, status: 'completed' }))
+  for (let i = 0; i < 6 && !(await linesOf(ui))[0]?.startsWith('✅'); i++) await clock.advance(1_000)
+  expect((await linesOf(ui))[0]).toBe('✅ clawd-teste █████ █████ █████')
+  expect((await report($)).teste).toBe('pass')
+  // o aviso do fim abre um turno novo: a reação vence o "trabalhando"
+  const busy = await $.ui.mount({ plugin: 'clawd', surface: 'desktop', ...bandAt(140, true) })
+  expect((await report($)).cena).toBe('pass')
+  await busy.unmount()
+  await clock.advance(5_000) // 5 s depois o ✅ some
+  expect((await linesOf(ui)).some(l => l.includes('✅') || l.includes('🧩'))).toBe(false)
+  expect(await bar()).toBe(null)
+  await ui.unmount()
+})
+
+test('barra: workflow parado — o arquivo final sem "completed" dá ❌ com a barra congelada por 8 s, e o susto', { timeoutMs: 60000 }, async ($, on) => {
+  const { clock, files } = barWorld(on, { proc: statuslineFor(true) })
+  await start($)
+  const ui = await $.ui.mount({ plugin: 'clawd', surface: 'desktop', ...bandAt(140) })
+  await clock.advance(1_100)
+  await launch($)
+  const a = await wfAgent($, 'mapear: faixa', 1)
+  await wfAgent($, 'mapear: pista', 2)
+  await finishAgent($, a)
+  await clock.advance(1_000)
+  const frozen = (await barNow($)).barra
+  files.set(finalOf('wf_1'), JSON.stringify({ runId: 'wf_1', status: 'killed', error: 'Error: Workflow aborted' }))
+  for (let i = 0; i < 6 && !(await linesOf(ui))[0]?.startsWith('❌'); i++) await clock.advance(1_000)
+  expect((await linesOf(ui))[0]).toBe('❌ clawd-teste · Mapear █████ █████ █████')
+  expect((await barNow($)).barra).toMatchObject({ end: 'fail', at: frozen?.at, fill: frozen?.fill })
+  expect((await report($)).teste).toBe('oops')
+  await clock.advance(6_000)
+  expect((await linesOf(ui))[0]).toMatch(/^❌/) // ainda congelada
+  await clock.advance(3_000)
+  expect((await linesOf(ui)).some(l => l.includes('❌'))).toBe(false)
+  await ui.unmount()
+})
+
+test('barra: sem o arquivo final, o Stop sem o workflow na lista decide pelos agentes; o script do disco é lido uma vez', { timeoutMs: 60000 }, async ($, on) => {
+  const files = new Map([[scriptOf('wf_1'), SCRIPT3]])
+  const { clock, reads } = barWorld(on, { proc: statuslineFor(true), files })
+  await start($)
+  const ui = await $.ui.mount({ plugin: 'clawd', surface: 'desktop', ...bandAt(140) })
+  await clock.advance(1_100)
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const t = $ as any
+  await launch($, { scriptPath: scriptOf('wf_1') }) // sem o script no pedido: ele vem do disco
+  const a = await wfAgent($, 'mapear: faixa', 1)
+  const b = await wfAgent($, 'desenhar: trilho', 2)
+  await clock.advance(1_000)
+  expect((await barNow($)).execucoes[0]).toMatchObject({ fases: ['Mapear', 'Desenhar', 'Julgar'], fase: 1 })
+  await finishAgent($, a)
+  await finishAgent($, b)
+  // o turno acaba com o workflow ainda na lista: segue rodando
+  await t.classic.Stop({ stop_hook_active: false, background_tasks: [{ id: 't_wf_1', type: 'workflow', status: 'running', description: 'x', name: 'clawd-teste' }] })
+  await clock.advance(15_000)
+  expect((await barNow($)).barra?.end).toBe('')
+  // o próximo Stop já não tem o workflow: sem arquivo final, decide pelos agentes (todos bem)
+  await t.classic.Stop({ stop_hook_active: false, background_tasks: [] })
+  for (let i = 0; i < 12 && !(await linesOf(ui))[0]?.startsWith('✅'); i++) await clock.advance(1_000)
+  expect((await linesOf(ui))[0]).toBe('✅ clawd-teste █████ █████ █████')
+  expect((await report($)).teste).toBe('pass')
+  expect(reads.filter(r => r === scriptOf('wf_1'))).toHaveLength(1)
+  await ui.unmount()
+})
+
+test('barra: workflow sem nenhum evento por 30 min some em silêncio (sem ✅ e sem susto)', { timeoutMs: 60000 }, async ($, on) => {
+  const { clock } = barWorld(on, { proc: statuslineFor(true) })
+  await start($)
+  const ui = await $.ui.mount({ plugin: 'clawd', surface: 'desktop', ...bandAt(140) })
+  await clock.advance(1_100)
+  await launch($)
+  await wfAgent($, 'mapear: faixa', 1)
+  await clock.advance(1_000)
+  expect((await linesOf(ui))[0]).toMatch(/^🧩/)
+  await clock.advance(29 * 60_000)
+  expect((await linesOf(ui))[0]).toMatch(/^🧩/) // 29 min: ainda lá
+  await clock.advance(2 * 60_000)
+  expect((await barNow($)).barra).toBe(null)
+  expect((await linesOf(ui)).some(l => /[🧩✅❌]/u.test(l))).toBe(false)
+  expect((await report($)).teste).toBe(null)
+  await ui.unmount()
+})
+
+test('barra: workflow remoto (remote_launched) não ganha barra; duas execuções locais: a mais recente, com +1', { timeoutMs: 60000 }, async ($, on) => {
+  let next = 0
+  const answers = [
+    { status: 'remote_launched', taskId: 'r1', taskType: 'remote_agent', sessionUrl: 'https://claude.ai/code/x', workflowName: 'longe' },
+    launched('wf_1'),
+    launched('wf_2', { workflowName: 'outro' }),
+  ]
+  const { clock } = barWorld(on, { proc: statuslineFor(true), workflow: () => answers[next++] })
+  await start($)
+  const ui = await $.ui.mount({ plugin: 'clawd', surface: 'desktop', ...bandAt(140) })
+  await clock.advance(1_100)
+  await launch($)
+  await clock.advance(1_000)
+  expect((await barNow($)).barra).toBe(null)
+  expect((await barNow($)).execucoes).toEqual([])
+  await launch($)
+  await clock.advance(1_000)
+  await launch($)
+  await clock.advance(1_000)
+  expect((await linesOf(ui))[0]).toBe('🧩 outro · Mapear █████ █████ █████ +1')
+  await ui.unmount()
+})
+
+test('barra: lista de tarefas — TaskCreated/TaskCompleted somam, TaskUpdate tira (deleted) e dá o rótulo (in_progress), TodoWrite troca tudo; some 5 s depois de toda feita', { timeoutMs: 60000 }, async ($, on) => {
+  const { clock } = barWorld(on, { proc: statuslineFor(true) })
+  await start($)
+  const ui = await $.ui.mount({ plugin: 'clawd', surface: 'desktop', ...bandAt(140) })
+  await clock.advance(1_100)
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const t = $ as any
+  const top = async () => {
+    await clock.advance(1_000)
+    return (await linesOf(ui))[0]
+  }
+  for (const subject of ['Ler', 'Testar', 'Sobrar']) {
+    const r = await t.tool.call({ tool: 'TaskCreate', subject, description: subject })
+    await t.classic.TaskCreated({ task_id: String(r.result.task.id), task_subject: subject })
+  }
+  await t.classic.TaskCreated({ task_id: '99', task_subject: 'do ajudante', agent_id: 'ag-x' }) // de um ajudante: não conta
+  expect(await top()).toBe('📋 ██████████ 0/3')
+  await t.tool.call({ tool: 'TaskUpdate', taskId: '1', status: 'in_progress', activeForm: 'Lendo o código' })
+  expect(await top()).toBe('📋 Lendo o código ██████████ 0/3')
+  await t.classic.TaskCompleted({ task_id: '1', task_subject: 'Ler' })
+  await t.tool.call({ tool: 'TaskUpdate', taskId: '3', status: 'deleted' })
+  expect(await top()).toBe('📋 ██████████ 1/2')
+  await t.tool.call({ tool: 'TaskUpdate', taskId: '2', status: 'in_progress', activeForm: 'Rodando os testes' })
+  expect(await top()).toBe('📋 Rodando os testes ██████████ 1/2')
+  await t.classic.TaskCompleted({ task_id: '2', task_subject: 'Testar' })
+  expect(await top()).toBe('📋 ██████████ 2/2') // toda feita: ainda aparece, cheia
+  await clock.advance(5_000)
+  expect((await linesOf(ui)).some(l => l.includes('📋'))).toBe(false)
+  // o TodoWrite troca a lista inteira
+  const todos = [
+    { content: 'a', status: 'completed', activeForm: 'Fazendo a' },
+    { content: 'b', status: 'in_progress', activeForm: 'Fazendo b' },
+    { content: 'c', status: 'pending', activeForm: 'Fazendo c' },
+  ]
+  await t.tool.call({ tool: 'TodoWrite', todos })
+  expect(await top()).toBe('📋 Fazendo b ██████████ 1/3')
+  expect((await barNow($)).tarefas).toEqual({ total: 3, feitas: 1 })
+  // uma tarefa só não vira barra
+  await t.tool.call({ tool: 'TodoWrite', todos: [{ content: 'x', status: 'in_progress', activeForm: 'Fazendo x' }] })
+  expect((await top())?.includes('📋')).toBe(false)
+  await ui.unmount()
+})
+
+test('barra: lote de ajudantes da ferramenta Agent — aparece com 2 ou mais, nunca recua, enche no fim e some com a baia vazia', { timeoutMs: 60000 }, async ($, on) => {
+  const { clock } = barWorld(on, { proc: statuslineFor(true) })
+  await start($)
+  const ui = await $.ui.mount({ plugin: 'clawd', surface: 'desktop', ...bandAt(140) })
+  await clock.advance(1_100)
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const t = $ as any
+  const top = async () => {
+    await clock.advance(1_000)
+    return (await linesOf(ui))[0]
+  }
+  await t.classic.SubagentStart({ agent_id: 'h1', agent_type: 'Explore' })
+  expect((await top())?.includes('🤖')).toBe(false) // um só, com baia: os minis já mostram
+  await t.classic.SubagentStart({ agent_id: 'h2', agent_type: 'general-purpose' })
+  expect(await top()).toBe('🤖 ██████████ 0✓')
+  await finishAgent($, 'h1')
+  expect(await top()).toBe('🤖 ██████████ 1✓')
+  expect((await barNow($)).barra?.fill).toBe(0.5)
+  await t.classic.SubagentStart({ agent_id: 'h3', agent_type: 'general-purpose' })
+  await top()
+  expect((await barNow($)).barra?.fill).toBe(0.5) // 1/3, mas nunca recua
+  await finishAgent($, 'h2')
+  await finishAgent($, 'h3', 'error')
+  expect(await top()).toBe('🤖 ██████████ 3✓')
+  expect((await barNow($)).barra?.fill).toBe(1)
+  await clock.advance(PARTY_MS + 2_000) // a festa acaba, a baia esvazia, o lote some
+  expect((await linesOf(ui)).some(l => l.includes('🤖'))).toBe(false)
+  await ui.unmount()
+})
+
+test('barra: lote — numa pista sem baia (cap 0), um ajudante só já aparece', { timeoutMs: 60000 }, async ($, on) => {
+  const { clock } = barWorld(on)
+  await start($)
+  const ui = await $.ui.mount({ plugin: 'clawd', surface: 'desktop', ...bandAt(50) })
+  await clock.advance(1_100)
+  expect((await barNow($)).encaixe).toMatchObject({ baia: 0, lado_a_lado: true })
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  await ($ as any).classic.SubagentStart({ agent_id: 'h1', agent_type: 'general-purpose' })
+  await clock.advance(1_000)
+  expect((await linesOf(ui))[0]).toBe('🤖 ██████████ 0✓')
+  await ui.unmount()
+})
+
+test('barra: seis eventos no mesmo segundo viram uma gravação só, e o desenho não grava nada', { timeoutMs: 60000 }, async ($, on) => {
+  const { clock } = barWorld(on, { proc: statuslineFor(true) })
+  let writes = 0
+  let all = 0
+  on('state.set', ($, e, next) => {
+    all++
+    if ((e as { key?: unknown }).key === 'progress') writes++
+    return next(e)
+  })
+  await start($)
+  const ui = await $.ui.mount({ plugin: 'clawd', surface: 'desktop', ...bandAt(140) })
+  await clock.advance(1_100)
+  writes = 0
+  await launch($)
+  for (let i = 1; i <= 5; i++) await wfAgent($, `mapear: parte ${i}`, i)
+  expect(writes).toBe(0) // os eventos só anotam; quem grava é o tique
+  await clock.advance(1_000)
+  expect(writes).toBe(1)
+  await clock.advance(3_000)
+  expect(writes).toBe(1) // nada mudou: nada gravado
+  all = 0
+  const again = await $.ui.mount({ plugin: 'clawd', surface: 'desktop', ...bandAt(80) })
+  expect(await again.find({ type: 'Svg' })).toBeDefined()
+  await again.unmount()
+  expect(all).toBe(0)
+  await ui.unmount()
+})
+
+test('barra: um "progress" velho ou estragado no atom não quebra a faixa nem mexe nas medidas dela', { timeoutMs: 60000 }, async ($, on) => {
+  // o state.get devolve um StateRead ({ value, version }); `junk` null: o valor de verdade
+  let junk: unknown = null
+  let v = 1
+  on('state.get', ($, e, next) => ((e as { key?: unknown }).key === 'progress' && junk !== null ? { value: { value: junk, version: ++v } as never } : next(e)))
+  const { clock } = barWorld(on, { proc: statuslineFor(true) })
+  await start($)
+  const mount = (width: number) => $.ui.mount({ plugin: 'clawd', surface: 'desktop', ...bandAt(width) })
+  const measures = async () => {
+    const f = (await barNow($)).encaixe ?? {}
+    return [f.colunas_texto, f.lado_a_lado, f.altura, f.pista_px, f.baia]
+  }
+  const JUNK: unknown[] = [
+    7,
+    'x',
+    [1, 2],
+    { k: 'zzz' },
+    {},
+    { k: 'wf' }, // uma versão velha: só o tipo
+    { k: 'wf', label: 'Mapear', pct: 50 }, // uma versão velha, com outros nomes
+    { k: 'wf', phases: 'x', fill: 'NaN', name: 3, at: -1 },
+    { k: 'wf', phases: [{ title: 'Mapear' }, 7, null, 'Julgar'], at: 99, fill: -3 },
+    { k: 'wf', phases: Array.from({ length: 500 }, () => 'A'.repeat(500)), at: 1e9, fill: 1e9, done: -1, more: 1e9 },
+    { k: 'wf', name: 'a\nb\u0007c\u001b[31m', phases: ['x\ny'], end: 'ok' },
+    { k: 'tasks', all: -5, done: 1e9 },
+    { k: 'agents', fill: Infinity, done: Number.NaN },
+    { k: 'wf', name: 'x'.repeat(100000) },
+  ]
+  for (const width of [140, 80, 30]) {
+    junk = null
+    let ui = await mount(width)
+    await clock.advance(1_100) // a statusline no formato desta largura
+    await ui.unmount()
+    ui = await mount(width)
+    const before = await measures()
+    const lines = await linesOf(ui)
+    const svg = String((await ui.find({ type: 'Svg' }))?.props.source)
+    await ui.unmount()
+    // o valor injetado chega mesmo ao desenho: uma barra válida aparece
+    junk = P3()
+    ui = await mount(width)
+    expect((await linesOf(ui)).some(l => l.includes('🧩 '))).toBe(true)
+    await ui.unmount()
+    for (const j of JUNK) {
+      junk = j
+      ui = await mount(width)
+      expect(String((await ui.find({ type: 'Svg' }))?.props.source)).toBe(svg)
+      expect(await measures()).toEqual(before)
+      if (progressOf(j) === null) expect(await linesOf(ui)).toEqual(lines)
+      await ui.unmount()
+    }
+  }
+})
+
+test('barra: recarregar no meio do workflow continua a mesma barra (atom "runs")', { timeoutMs: 60000 }, async ($, on) => {
+  const { clock, files } = barWorld(on, { proc: statuslineFor(true) })
+  await start($)
+  let ui = await $.ui.mount({ plugin: 'clawd', surface: 'desktop', ...bandAt(140) })
+  await clock.advance(1_100)
+  await launch($)
+  const a = await wfAgent($, 'mapear: faixa', 1)
+  await finishAgent($, a)
+  const b = await wfAgent($, 'desenhar: trilho', 2)
+  await wfAgent($, 'desenhar: pista', 3)
+  await clock.advance(1_000)
+  expect((await barNow($)).barra).toMatchObject({ at: 1, fill: 0 })
+  await ui.unmount()
+  await start($) // o mod recarrega
+  ui = await $.ui.mount({ plugin: 'clawd', surface: 'desktop', ...bandAt(140) })
+  await clock.advance(1_000)
+  expect((await barNow($)).barra).toMatchObject({ k: 'wf', name: 'clawd-teste', phases: ['Mapear', 'Desenhar', 'Julgar'], at: 1, fill: 0 })
+  expect((await linesOf(ui))[0]).toBe('🧩 clawd-teste · Desenhar █████ █████ █████')
+  await finishAgent($, b) // o agente de antes do recarregamento ainda é reconhecido
+  await clock.advance(1_000)
+  expect(Math.round(((await barNow($)).barra?.fill ?? 0) * 1000)).toBe(333) // 1 de 2, com a folga de +1
+  files.set(finalOf('wf_1'), JSON.stringify({ status: 'completed' }))
+  for (let i = 0; i < 6 && !(await linesOf(ui))[0]?.startsWith('✅'); i++) await clock.advance(1_000)
+  expect((await linesOf(ui))[0]).toBe('✅ clawd-teste █████ █████ █████')
+  await ui.unmount()
+})
+
+test('barra: no terminal nada muda (só o logo), mesmo com um workflow rodando', { timeoutMs: 60000 }, async ($, on) => {
+  const { clock } = barWorld(on, { proc: statuslineFor(true) })
+  await start($)
+  await launch($)
+  await wfAgent($, 'mapear: faixa', 1)
+  await clock.advance(2_000)
+  const ui = await $.ui.mount({ plugin: 'clawd', surface: 'terminal', ...bandAt(140) })
+  expect(await ui.find({ type: 'Text', text: /▐▛███▜▌/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /🧩/ })).toBeUndefined()
+  await ui.unmount()
+})
+
+test('barra: retomada (o mesmo runId) continua a mesma barra; o arquivo final da execução anterior não a encerra', { timeoutMs: 60000 }, async ($, on) => {
+  const { clock, files, stamps } = barWorld(on, { proc: statuslineFor(true) })
+  await start($)
+  const ui = await $.ui.mount({ plugin: 'clawd', surface: 'desktop', ...bandAt(140) })
+  await clock.advance(1_100)
+  await launch($)
+  const a = await wfAgent($, 'mapear: faixa', 1)
+  await finishAgent($, a)
+  await wfAgent($, 'desenhar: trilho', 2)
+  await clock.advance(1_000)
+  // a execução é parada: o arquivo final nasce com "killed"
+  stamps.set(finalOf('wf_1'), clock.now())
+  files.set(finalOf('wf_1'), JSON.stringify({ status: 'killed' }))
+  for (let i = 0; i < 6 && !(await linesOf(ui))[0]?.startsWith('❌'); i++) await clock.advance(1_000)
+  await clock.advance(9_000)
+  expect((await linesOf(ui))[0]?.includes('❌')).toBe(false)
+  // retomada: o motor devolve o mesmo runId, e a barra volta de onde estava
+  await launch($, { scriptPath: scriptOf('wf_1'), resumeFromRunId: 'wf_1' })
+  await clock.advance(12_000) // passa por duas conferências do arquivo final (o velho continua lá)
+  expect((await barNow($)).barra).toMatchObject({ at: 1, end: '' })
+  expect((await linesOf(ui))[0]).toBe('🧩 clawd-teste · Desenhar █████ █████ █████')
+  // o arquivo final novo (gravado depois do lançamento de agora) encerra
+  stamps.delete(finalOf('wf_1'))
+  files.set(finalOf('wf_1'), JSON.stringify({ status: 'completed' }))
+  for (let i = 0; i < 6 && !(await linesOf(ui))[0]?.startsWith('✅'); i++) await clock.advance(1_000)
+  expect((await linesOf(ui))[0]).toBe('✅ clawd-teste █████ █████ █████')
+  await ui.unmount()
+})
+
+test('barra: o Stop sem o workflow na lista não encerra a barra enquanto um agente dela ainda roda', { timeoutMs: 60000 }, async ($, on) => {
+  const { clock } = barWorld(on, { proc: statuslineFor(true) })
+  await start($)
+  const ui = await $.ui.mount({ plugin: 'clawd', surface: 'desktop', ...bandAt(140) })
+  await clock.advance(1_100)
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const t = $ as any
+  await launch($)
+  const a = await wfAgent($, 'mapear: faixa', 1)
+  const b = await wfAgent($, 'mapear: pista', 2)
+  await finishAgent($, a)
+  await t.classic.Stop({ stop_hook_active: false, background_tasks: [] }) // a lista não a reconheceu
+  await clock.advance(20_000)
+  expect((await barNow($)).barra?.end).toBe('') // b ainda roda: não acabou
+  await finishAgent($, b, 'error')
+  for (let i = 0; i < 12 && !(await linesOf(ui))[0]?.startsWith('❌'); i++) await clock.advance(1_000)
+  expect((await linesOf(ui))[0]).toBe('❌ clawd-teste · Mapear █████ █████ █████') // um deles falhou
+  expect((await report($)).teste).toBe('oops')
+  await ui.unmount()
+})
+
+// ---------- a barra: o que a revisão achou ----------
+
+test('barra: na faixa empilhada estreita (30 a 34 colunas) o segmento cabe na largura da faixa, sem ser cortado', { timeoutMs: 60000 }, async ($, on) => {
+  const { clock } = barWorld(on, { proc: statuslineFor(true) })
+  await start($)
+  await launch($)
+  await wfAgent($, 'mapear: faixa', 1)
+  for (const width of [34, 32, 30]) {
+    const ui = await $.ui.mount({ plugin: 'clawd', surface: 'desktop', ...bandAt(width) })
+    await clock.advance(1_100)
+    expect((await barNow($)).encaixe).toMatchObject({ lado_a_lado: false, onde: 'segmento' })
+    const line = (await linesOf(ui)).find(l => l.includes('🧩')) ?? ''
+    expect(line.startsWith('🌿 barra  🧩 ')).toBe(true)
+    // a coluna de texto tem a largura da faixa, e cada linha é cortada nela: a linha inteira (o
+    // emoji contado como 2) tem que caber, senão o fim da barra some
+    expect(cols(line)).toBeLessThanOrEqual(width)
+    await ui.unmount()
+  }
+})
+
+test('barra: começar a conversa de novo sem nada mudado não grava "progress" nem "runs"', { timeoutMs: 60000 }, async ($, on) => {
+  const { clock } = barWorld(on, { proc: statuslineFor(true) })
+  const sets: string[] = []
+  on('state.set', ($, e, next) => {
+    const k = String((e as { key?: unknown }).key)
+    if (k === 'progress' || k === 'runs') sets.push(k)
+    return next(e)
+  })
+  await start($)
+  expect(sets).toEqual([]) // nada guardado e nada a mostrar: nada a gravar
+  const ui = await $.ui.mount({ plugin: 'clawd', surface: 'desktop', ...bandAt(140) })
+  await clock.advance(1_100)
+  await launch($)
+  await wfAgent($, 'mapear: faixa', 1)
+  await clock.advance(1_000)
+  expect([...sets].sort()).toEqual(['progress', 'runs']) // o tique gravou o que mudou
+  sets.length = 0
+  await start($) // um recarregamento: as mesmas execuções voltam e a barra é a mesma
+  await clock.advance(3_000)
+  expect(sets).toEqual([])
+  expect((await linesOf(ui))[0]).toBe('🧩 clawd-teste · Mapear █████ █████ █████')
+  await ui.unmount()
+})
+
+test('barra: o /clear começa uma lista de tarefas nova (a velha sai da faixa e o "1" novo não herda o "1" velho)', { timeoutMs: 60000 }, async ($, on) => {
+  const { clock } = barWorld(on, { proc: statuslineFor(true) })
+  await start($)
+  const ui = await $.ui.mount({ plugin: 'clawd', surface: 'desktop', ...bandAt(140) })
+  await clock.advance(1_100)
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const t = $ as any
+  for (const subject of ['A', 'B', 'C', 'D']) {
+    const r = await t.tool.call({ tool: 'TaskCreate', subject, description: subject })
+    await t.classic.TaskCreated({ task_id: String(r.result.task.id), task_subject: subject })
+  }
+  await t.classic.TaskCompleted({ task_id: '1', task_subject: 'A' })
+  await t.classic.TaskCompleted({ task_id: '2', task_subject: 'B' })
+  await clock.advance(1_000)
+  expect((await linesOf(ui))[0]).toBe('📋 ██████████ 2/4')
+  await t.classic.SessionStart({ source: 'clear' })
+  await clock.advance(1_000)
+  expect((await linesOf(ui)).some(l => l.includes('📋'))).toBe(false)
+  // a lista nova do motor recomeça do "1"
+  await t.classic.TaskCreated({ task_id: '1', task_subject: 'Nova 1' })
+  await t.classic.TaskCreated({ task_id: '2', task_subject: 'Nova 2' })
+  await clock.advance(1_000)
+  expect((await linesOf(ui))[0]).toBe('📋 ██████████ 0/2')
+  expect((await barNow($)).tarefas).toEqual({ total: 2, feitas: 0 })
+  await ui.unmount()
+})
+
+test('barra: recarregar logo depois do fim de um agente de workflow (antes do tique) não apaga esse fim', { timeoutMs: 60000 }, async ($, on) => {
+  const { clock } = barWorld(on, { proc: statuslineFor(true) })
+  await start($)
+  let ui = await $.ui.mount({ plugin: 'clawd', surface: 'desktop', ...bandAt(140) })
+  await clock.advance(1_100)
+  await launch($)
+  const a = await wfAgent($, 'mapear: faixa', 1)
+  await wfAgent($, 'mapear: pista', 2)
+  await clock.advance(1_000)
+  await finishAgent($, a)
+  await ui.unmount()
+  await start($) // o mod recarrega antes do tique
+  ui = await $.ui.mount({ plugin: 'clawd', surface: 'desktop', ...bandAt(140) })
+  await clock.advance(1_000)
+  const now = await barNow($)
+  expect(now.execucoes[0]).toMatchObject({ agentes: 2, terminados: 1 })
+  expect(Math.round((now.barra?.fill ?? 0) * 1000)).toBe(333)
+  await ui.unmount()
+})
+
+test('barra: um TaskCreated bloqueado por outro gancho não deixa uma tarefa fantasma na lista', { timeoutMs: 60000 }, async ($, on) => {
+  let block = false
+  const { clock } = barWorld(on, { proc: statuslineFor(true), blockCreated: () => block })
+  await start($)
+  const ui = await $.ui.mount({ plugin: 'clawd', surface: 'desktop', ...bandAt(140) })
+  await clock.advance(1_100)
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const t = $ as any
+  for (const subject of ['A', 'B']) {
+    const r = await t.tool.call({ tool: 'TaskCreate', subject, description: subject })
+    await t.classic.TaskCreated({ task_id: String(r.result.task.id), task_subject: subject })
+  }
+  block = true
+  expect(await t.classic.TaskCreated({ task_id: '3', task_subject: 'bloqueada' })).toMatchObject({ block: 'proibido por um gancho' })
+  block = false
+  await clock.advance(1_000)
+  expect((await linesOf(ui))[0]).toBe('📋 ██████████ 0/2')
+  await t.classic.TaskCompleted({ task_id: '1', task_subject: 'A' })
+  await t.classic.TaskCompleted({ task_id: '2', task_subject: 'B' })
+  await clock.advance(1_000)
+  expect((await linesOf(ui))[0]).toBe('📋 ██████████ 2/2')
+  await clock.advance(5_000) // toda feita: some
+  expect((await linesOf(ui)).some(l => l.includes('📋'))).toBe(false)
+  await ui.unmount()
+})
+
+test('barra: sem nenhum agente conhecido, o Stop sem o workflow na lista não inventa um ✅ (o arquivo final ainda encerra)', { timeoutMs: 60000 }, async ($, on) => {
+  const { clock, files } = barWorld(on, { proc: statuslineFor(true) })
+  await start($)
+  const ui = await $.ui.mount({ plugin: 'clawd', surface: 'desktop', ...bandAt(140) })
+  await clock.advance(1_100)
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const t = $ as any
+  await launch($)
+  await clock.advance(1_000)
+  await t.classic.Stop({ stop_hook_active: false, background_tasks: [] })
+  for (let i = 0; i < 15; i++) {
+    await clock.advance(1_000)
+    expect((await report($)).teste).toBe(null) // nenhuma reação: nada acabou
+  }
+  expect((await barNow($)).barra?.end).toBe('')
+  expect((await linesOf(ui))[0]).toBe('🧩 clawd-teste · Mapear █████ █████ █████')
+  files.set(finalOf('wf_1'), JSON.stringify({ status: 'completed' }))
+  for (let i = 0; i < 6 && !(await linesOf(ui))[0]?.startsWith('✅'); i++) await clock.advance(1_000)
+  expect((await linesOf(ui))[0]).toBe('✅ clawd-teste █████ █████ █████')
+  await ui.unmount()
+})
+
+test('barra: uma fase de um agente por vez enche aos poucos (o 1º agente não a leva ao teto)', () => {
+  const run = newRun('wf_s')
+  setPhases(run, ['Código', 'Revisão final'])
+  const fills: number[] = []
+  for (let i = 1; i <= 30; i++) {
+    run.agents.set(`c${i}`, { label: 'código: parte', phase: 0, done: false, ok: false, metaTried: false })
+    advance(run)
+    run.agents.set(`c${i}`, { label: 'código: parte', phase: 0, done: true, ok: true, metaTried: false })
+    advance(run)
+    fills.push(Math.round(run.fill * 100) / 100)
+  }
+  expect(fills.slice(0, 4)).toEqual([0.5, 0.67, 0.75, 0.8])
+  expect(fills.every((f, i) => f <= 0.9 && f >= (fills[i - 1] ?? 0))).toBe(true) // sobe, sem passar do teto
+  expect(run.at).toBe(0)
+})
+
+test('barra: o meta.json que nasce depois do 1º tique ainda dá a fase do agente (tenta de novo; desiste depois de 10)', { timeoutMs: 60000 }, async ($, on) => {
+  const { clock, files, reads } = barWorld(on, { proc: statuslineFor(true) })
+  await start($)
+  const ui = await $.ui.mount({ plugin: 'clawd', surface: 'desktop', ...bandAt(140) })
+  await clock.advance(1_100)
+  await launch($)
+  const c = await wfAgent($, 'sem prefixo conhecido', 1)
+  const d = await wfAgent($, 'outro sem prefixo', 2)
+  const metaC = `${tdir('wf_1')}/agent-${c}.meta.json`
+  const metaD = `${tdir('wf_1')}/agent-${d}.meta.json`
+  await clock.advance(1_000) // o 1º tique: o arquivo ainda não nasceu
+  expect(reads).toContain(metaC)
+  files.set(metaC, JSON.stringify({ agentType: 'workflow-subagent', description: 'sem prefixo conhecido', workflowPhase: 'Desenhar' }))
+  await clock.advance(2_000)
+  expect((await barNow($)).barra?.at).toBe(1)
+  expect((await linesOf(ui))[0]).toBe('🧩 clawd-teste · Desenhar █████ █████ █████')
+  await clock.advance(20_000) // o do d nunca nasce: 10 tentativas e para
+  expect(reads.filter(r => r === metaD)).toHaveLength(10)
+  expect(reads.filter(r => r === metaC)).toHaveLength(2) // leu e não lê mais
+  await ui.unmount()
+})
+
+test('barra: workflow parado — os agentes abortados não contam como terminados, e o ❌ fica onde a barra estava', { timeoutMs: 60000 }, async ($, on) => {
+  const { clock, files } = barWorld(on, { proc: statuslineFor(true) })
+  await start($)
+  const ui = await $.ui.mount({ plugin: 'clawd', surface: 'desktop', ...bandAt(140) })
+  await clock.advance(1_100)
+  await launch($)
+  const a = await wfAgent($, 'mapear: faixa', 1)
+  const b = await wfAgent($, 'mapear: pista', 2)
+  await clock.advance(1_000)
+  await finishAgent($, a, 'aborted')
+  await finishAgent($, b, 'aborted')
+  await clock.advance(1_000) // um tique antes da conferência do arquivo final
+  expect((await barNow($)).barra).toMatchObject({ at: 0, fill: 0, done: 0, end: '' })
+  files.set(finalOf('wf_1'), JSON.stringify({ status: 'killed' }))
+  for (let i = 0; i < 6 && !(await linesOf(ui))[0]?.startsWith('❌'); i++) await clock.advance(1_000)
+  expect((await barNow($)).barra).toMatchObject({ at: 0, fill: 0, done: 0, end: 'fail' })
+  await ui.unmount()
+})
+
+test('barra: "completed" com todos os agentes em erro vira ❌ e o susto, não ✅', { timeoutMs: 60000 }, async ($, on) => {
+  const { clock, files } = barWorld(on, { proc: statuslineFor(true) })
+  await start($)
+  const ui = await $.ui.mount({ plugin: 'clawd', surface: 'desktop', ...bandAt(140) })
+  await clock.advance(1_100)
+  await launch($)
+  const a = await wfAgent($, 'mapear: faixa', 1)
+  const b = await wfAgent($, 'mapear: pista', 2)
+  await finishAgent($, a, 'error')
+  await finishAgent($, b, 'error')
+  files.set(finalOf('wf_1'), JSON.stringify({ status: 'completed', result: [] }))
+  for (let i = 0; i < 7 && !/^[✅❌]/u.test((await linesOf(ui))[0] ?? ''); i++) await clock.advance(1_000)
+  expect((await linesOf(ui))[0]).toBe('❌ clawd-teste · Mapear █████ █████ █████')
+  expect((await report($)).teste).toBe('oops')
+  await ui.unmount()
+})
+
+test('barra: numa retomada a fase continua, mas o preenchimento dela recomeça com os agentes da retomada', { timeoutMs: 60000 }, async ($, on) => {
+  const { clock, files, stamps } = barWorld(on, { proc: statuslineFor(true) })
+  await start($)
+  const ui = await $.ui.mount({ plugin: 'clawd', surface: 'desktop', ...bandAt(140) })
+  await clock.advance(1_100)
+  await launch($)
+  const a = await wfAgent($, 'mapear: faixa', 1)
+  await finishAgent($, a)
+  const b = await wfAgent($, 'desenhar: trilho', 2)
+  await finishAgent($, b)
+  await clock.advance(1_000)
+  expect((await barNow($)).barra).toMatchObject({ at: 1, fill: 0.5 })
+  stamps.set(finalOf('wf_1'), clock.now())
+  files.set(finalOf('wf_1'), JSON.stringify({ status: 'completed' }))
+  for (let i = 0; i < 6 && !(await linesOf(ui))[0]?.startsWith('✅'); i++) await clock.advance(1_000)
+  await clock.advance(6_000) // o ✅ sai
+  await launch($, { scriptPath: scriptOf('wf_1'), resumeFromRunId: 'wf_1' })
+  await clock.advance(1_000)
+  expect((await barNow($)).barra).toMatchObject({ at: 1, fill: 0, end: '' })
+  const c = await wfAgent($, 'desenhar: de novo', 3)
+  await finishAgent($, c)
+  await clock.advance(1_000)
+  // 1 de 1 da retomada (com a folga de quem ainda pode vir): o b da execução anterior não conta
+  expect((await barNow($)).barra).toMatchObject({ at: 1, fill: 0.5 })
+  await ui.unmount()
+})
+
+test('barra: duas execuções — o ✅ da mais antiga aparece na vez dele, e depois a faixa volta à mais recente', { timeoutMs: 60000 }, async ($, on) => {
+  let next = 0
+  const answers = [launched('wf_1'), launched('wf_2', { workflowName: 'outro' })]
+  const { clock, files } = barWorld(on, { proc: statuslineFor(true), workflow: () => answers[next++] })
+  await start($)
+  const ui = await $.ui.mount({ plugin: 'clawd', surface: 'desktop', ...bandAt(140) })
+  await clock.advance(1_100)
+  await launch($)
+  await clock.advance(1_000)
+  await launch($)
+  await clock.advance(1_000)
+  expect((await linesOf(ui))[0]).toBe('🧩 outro · Mapear █████ █████ █████ +1')
+  files.set(finalOf('wf_1'), JSON.stringify({ status: 'completed' }))
+  for (let i = 0; i < 6 && !(await linesOf(ui))[0]?.startsWith('✅'); i++) await clock.advance(1_000)
+  expect((await linesOf(ui))[0]).toBe('✅ clawd-teste █████ █████ █████ +1')
+  expect((await report($)).teste).toBe('pass')
+  await clock.advance(5_000)
+  expect((await linesOf(ui))[0]).toBe('🧩 outro · Mapear █████ █████ █████')
+  await ui.unmount()
+})
+
+test('barra: numa retomada, o relógio da máquina que volta para trás não faz o arquivo final ser ignorado', { timeoutMs: 60000 }, async ($, on) => {
+  const { clock, files, stamps } = barWorld(on, { proc: statuslineFor(true) })
+  await start($)
+  const ui = await $.ui.mount({ plugin: 'clawd', surface: 'desktop', ...bandAt(140) })
+  await clock.advance(1_100)
+  await launch($)
+  const a = await wfAgent($, 'mapear: faixa', 1)
+  await finishAgent($, a)
+  await wfAgent($, 'desenhar: trilho', 2)
+  await clock.advance(1_000)
+  stamps.set(finalOf('wf_1'), clock.now())
+  files.set(finalOf('wf_1'), JSON.stringify({ status: 'killed' }))
+  for (let i = 0; i < 6 && !(await linesOf(ui))[0]?.startsWith('❌'); i++) await clock.advance(1_000)
+  await clock.advance(9_000)
+  await launch($, { scriptPath: scriptOf('wf_1'), resumeFromRunId: 'wf_1' })
+  await clock.advance(12_000) // o arquivo velho continua lá: não encerra
+  expect((await barNow($)).barra).toMatchObject({ at: 1, end: '' })
+  // o relógio voltou 3 h: o arquivo final novo sai com uma data "de antes" do lançamento
+  stamps.set(finalOf('wf_1'), clock.now() - 3 * 3_600_000)
+  files.set(finalOf('wf_1'), JSON.stringify({ status: 'completed' }))
+  for (let i = 0; i < 6 && !(await linesOf(ui))[0]?.startsWith('✅'); i++) await clock.advance(1_000)
+  expect((await linesOf(ui))[0]).toBe('✅ clawd-teste █████ █████ █████')
+  await ui.unmount()
+})
+
+test('barra: retomada de uma execução que a memória já esqueceu (mais de 30 min depois): o arquivo final velho não a encerra', { timeoutMs: 60000 }, async ($, on) => {
+  const { clock, files, stamps } = barWorld(on, { proc: statuslineFor(true) })
+  await start($)
+  const ui = await $.ui.mount({ plugin: 'clawd', surface: 'desktop', ...bandAt(140) })
+  await clock.advance(1_100)
+  await launch($)
+  const a = await wfAgent($, 'mapear: faixa', 1)
+  await finishAgent($, a, 'aborted')
+  await clock.advance(1_000)
+  stamps.set(finalOf('wf_1'), clock.now())
+  files.set(finalOf('wf_1'), JSON.stringify({ status: 'killed' }))
+  await clock.advance(31 * 60_000) // o ❌ passou e a execução saiu da memória
+  expect((await barNow($)).execucoes).toEqual([])
+  await launch($, { script: SCRIPT3, resumeFromRunId: 'wf_1' })
+  await clock.advance(12_000) // duas conferências com o arquivo velho lá
+  expect((await barNow($)).barra).toMatchObject({ k: 'wf', end: '' })
+  stamps.delete(finalOf('wf_1')) // o arquivo final novo
+  files.set(finalOf('wf_1'), JSON.stringify({ status: 'completed' }))
+  for (let i = 0; i < 6 && !(await linesOf(ui))[0]?.startsWith('✅'); i++) await clock.advance(1_000)
+  expect((await linesOf(ui))[0]).toBe('✅ clawd-teste █████ █████ █████')
   await ui.unmount()
 })
