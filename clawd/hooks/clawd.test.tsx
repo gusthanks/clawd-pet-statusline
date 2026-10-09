@@ -1,7 +1,7 @@
 import { expect, mock, test } from 'claude-code/testing'
 import type { On } from 'claude-code'
 import { isTestCommand, testVerdict } from './git'
-import { isRaining } from './weather'
+import { isRaining, parseWindowsPlace, WINDOWS_PLACE_SCRIPT } from './weather'
 
 const band = (isWorking: boolean) => ({
   component: 'AbovePrompt' as const,
@@ -17,6 +17,9 @@ const USAGE_JSON = JSON.stringify({
   five_hour: { utilization: 18, resets_at: '2026-10-06T16:10:00+00:00' },
   seven_day: { utilization: 11, resets_at: '2026-10-11T16:00:00+00:00' },
 })
+
+const WIN_READY = 'Ready|Granted|-23.6196|-46.7895|108'
+const WIN_DENIED = 'NoData|Denied|NaN|NaN|NaN'
 
 const run = (stdout: string) => ({ exitCode: 0, stdout, stderr: '', isStdoutTruncated: false, isStderrTruncated: false })
 
@@ -664,6 +667,7 @@ test('o node no Windows: PATH falha, o "where node" roda uma vez e o resultado f
   const { clock } = world(on, {
     env: { OS: 'Windows_NT' },
     proc: (argv) => {
+      if (argv[0] === 'powershell.exe') return run(WIN_DENIED) // a localização do Windows não entra na ordem do node
       calls.push(argv[0])
       if (argv[0] === 'where') return run('C:\\nvm4w\\nodejs\\node.exe\r\nD:\\outro\\node.exe\r\n')
       if (argv[0] !== 'C:/nvm4w/nodejs/node.exe') throw new Error('sem esse')
@@ -678,6 +682,173 @@ test('o node no Windows: PATH falha, o "where node" roda uma vez e o resultado f
   await ui.unmount()
   expect(calls.filter((c) => c === 'where')).toHaveLength(1)
   expect(calls.filter((c) => c === 'C:/nvm4w/nodejs/node.exe').length).toBeGreaterThan(1)
+})
+
+// ---------- o lugar: o Windows primeiro, o IP de reserva ----------
+
+const isPowershell = (argv: readonly string[]) => argv[0] === 'powershell.exe'
+const isPlaceFetch = (u: string) => u.includes('geojs') || u.includes('ipwho')
+const weatherFetches = (fetches: string[]) => fetches.filter((u) => u.includes('open-meteo'))
+// o motor do teste: o powershell responde "answer" e o resto (a statusline) a saída de sempre
+const winProc = (answer: string, calls: string[][] = []) => (argv: readonly string[]) => {
+  if (isPowershell(argv)) {
+    calls.push([...argv])
+    return run(answer)
+  }
+  return run(STATUSLINE_OUT)
+}
+
+test('lugar: a saída do PowerShell só vale com Ready, Granted e números de verdade', () => {
+  expect(parseWindowsPlace(WIN_READY)).toEqual({ lat: -23.62, lon: -46.79, acc: 108 })
+  expect(parseWindowsPlace(WIN_READY + '\r\n')).toEqual({ lat: -23.62, lon: -46.79, acc: 108 })
+  expect(parseWindowsPlace(WIN_DENIED)).toBeNull()
+  expect(parseWindowsPlace('Ready|Denied|-23.6|-46.7|10')).toBeNull()
+  expect(parseWindowsPlace('Initializing|Granted|NaN|NaN|NaN')).toBeNull()
+  expect(parseWindowsPlace('Ready|Granted|-23,6196|-46,7895|108')).toBeNull() // vírgula decimal: o script não deixa chegar assim
+  expect(parseWindowsPlace('Ready|Granted|0|0|0')).toBeNull()
+  expect(parseWindowsPlace('Ready|Granted|123|-46|5')).toBeNull()
+  expect(parseWindowsPlace('')).toBeNull()
+  expect(WINDOWS_PLACE_SCRIPT).not.toContain('\n')
+  expect(WINDOWS_PLACE_SCRIPT).toContain('InvariantCulture')
+})
+
+test('lugar no Windows: com Ready e Granted o lugar vem do Windows, arredondado, sem tocar nos serviços de IP', { timeoutMs: 60000 }, async ($, on) => {
+  const calls: string[][] = []
+  const { clock, fetches } = world(on, { env: { OS: 'Windows_NT' }, proc: winProc(WIN_READY, calls) })
+  await start($)
+  await clock.settle()
+  const r = await report($)
+  expect(r.lugar.lat).toBe(-23.62)
+  expect(r.lugar.lon).toBe(-46.79)
+  expect(r.lugar.source).toBe('windows')
+  expect(fetches.some(isPlaceFetch)).toBe(false)
+  const w = weatherFetches(fetches)
+  expect(w.length).toBeGreaterThan(0)
+  expect(w.every((u) => u.includes('latitude=-23.62&longitude=-46.79'))).toBe(true)
+  expect(calls[0].slice(0, 4)).toEqual(['powershell.exe', '-NoProfile', '-NonInteractive', '-Command'])
+  expect(calls[0]).not.toContain('-ExecutionPolicy')
+})
+
+test('lugar no Windows: negado cai no IP e só tenta o Windows de novo na próxima hora', { timeoutMs: 60000 }, async ($, on) => {
+  const calls: string[][] = []
+  const { clock, fetches } = world(on, { env: { OS: 'Windows_NT' }, proc: winProc(WIN_DENIED, calls) })
+  await start($)
+  await clock.settle()
+  const r = await report($)
+  expect(r.lugar.source).toBe('ip')
+  expect(r.lugar.lat).toBe(-23.55)
+  expect(fetches.some((u) => u.includes('geojs'))).toBe(true)
+  expect(calls).toHaveLength(1)
+  await clock.advance(20 * 60_000) // passam as leituras do clima, mas não a hora
+  expect(calls).toHaveLength(1)
+  await clock.advance(50 * 60_000) // agora passou mais de uma hora da falha
+  expect(calls.length).toBeGreaterThan(1)
+})
+
+test('lugar no Windows: powershell que falha ou estoura o tempo não trava nada e cai no IP', { timeoutMs: 60000 }, async ($, on) => {
+  const { clock, fetches } = world(on, {
+    env: { OS: 'Windows_NT' },
+    proc: (argv) => {
+      if (isPowershell(argv)) throw new Error('powershell sumiu')
+      return run(STATUSLINE_OUT)
+    },
+  })
+  await start($)
+  await clock.settle()
+  const r = await report($)
+  expect(r.lugar.source).toBe('ip')
+  expect(fetches.some((u) => u.includes('geojs'))).toBe(true)
+  expect(weatherFetches(fetches).length).toBeGreaterThan(0)
+})
+
+test('lugar fora do Windows: nem roda o powershell, vai direto ao IP', { timeoutMs: 60000 }, async ($, on) => {
+  const calls: string[][] = []
+  const { clock, fetches } = world(on, { proc: winProc(WIN_READY, calls) })
+  await start($)
+  await clock.settle()
+  const r = await report($)
+  expect(calls).toHaveLength(0)
+  expect(r.lugar.source).toBe('ip')
+  expect(fetches.some((u) => u.includes('geojs'))).toBe(true)
+})
+
+test('lugar: CLAWD_LOCATION fixa ganha do Windows e do IP', { timeoutMs: 60000 }, async ($, on) => {
+  const calls: string[][] = []
+  const { clock, fetches } = world(on, { env: { OS: 'Windows_NT', CLAWD_LOCATION: '-22.9,-43.2' }, proc: winProc(WIN_READY, calls) })
+  await start($)
+  await clock.settle()
+  const r = await report($)
+  expect(r.lugar.source).toBe('env')
+  expect(r.lugar.lat).toBe(-22.9)
+  expect(calls).toHaveLength(0)
+  expect(fetches.some(isPlaceFetch)).toBe(false)
+})
+
+test('lugar: CLAWD_WEATHER=off no Windows não roda o powershell nem pede nada', { timeoutMs: 60000 }, async ($, on) => {
+  const calls: string[][] = []
+  const { clock, fetches } = world(on, { env: { OS: 'Windows_NT', CLAWD_WEATHER: 'off' }, proc: winProc(WIN_READY, calls) })
+  await start($)
+  await clock.settle()
+  await clock.advance(5 * 60_000)
+  const r = await report($)
+  expect(calls).toHaveLength(0)
+  expect(r.lugar).toBeNull()
+  expect(fetches.some((u) => isPlaceFetch(u) || u.includes('open-meteo'))).toBe(false)
+})
+
+for (const [nome, antigo] of [
+  ["guardado pelo IP (source 'ip')", { lat: -23.55, lon: -46.63, city: 'Sao Paulo', source: 'ip' }],
+  ['guardado por uma versão antiga (sem source)', { lat: -23.55, lon: -46.63, city: 'Sao Paulo' }],
+] as const) {
+  test(`lugar: ${nome} no Windows tenta o Windows na hora, sem esperar a hora, e corrige o clima`, { timeoutMs: 60000 }, async ($, on) => {
+    const NOW = 1_700_000_000_000
+    const calls: string[][] = []
+    const store = new Map<string, unknown>()
+    const { clock, fetches } = world(on, { now: NOW, ownStore: store, store: { place: { ...antigo, at: NOW - 60_000 } }, env: { OS: 'Windows_NT' }, proc: winProc(WIN_READY, calls) })
+    await start($)
+    await clock.settle()
+    expect(calls).toHaveLength(1) // o guardado tem 1 minuto, mas veio do IP
+    expect(fetches.some(isPlaceFetch)).toBe(false)
+    const saved = store.get('place') as Record<string, unknown>
+    expect(saved.source).toBe('windows')
+    expect(saved.lat).toBe(-23.62)
+    const w = weatherFetches(fetches)
+    expect(w.length).toBeGreaterThan(0)
+    expect(w.every((u) => u.includes('latitude=-23.62'))).toBe(true) // o clima do centro nem chega a ser pedido
+  })
+}
+
+test('lugar: guardado do Windows ainda novo não pergunta de novo', { timeoutMs: 60000 }, async ($, on) => {
+  const NOW = 1_700_000_000_000
+  const calls: string[][] = []
+  const { clock, fetches } = world(on, { now: NOW, store: { place: { lat: -23.62, lon: -46.79, city: '', at: NOW - 60_000, source: 'windows' } }, env: { OS: 'Windows_NT' }, proc: winProc(WIN_READY, calls) })
+  await start($)
+  await clock.settle()
+  expect(calls).toHaveLength(0)
+  expect(weatherFetches(fetches).length).toBeGreaterThan(0)
+})
+
+test('lugar: guardado do Windows vencido pergunta de novo e já pede o clima do lugar novo, sem esperar os 15 minutos', { timeoutMs: 60000 }, async ($, on) => {
+  const NOW = 1_700_000_000_000
+  const calls: string[][] = []
+  const { clock, fetches } = world(on, { now: NOW, store: { place: { lat: -23.55, lon: -46.63, city: '', at: NOW - 2 * 60 * 60_000, source: 'windows' } }, env: { OS: 'Windows_NT' }, proc: winProc(WIN_READY, calls) })
+  await start($)
+  await clock.settle()
+  expect(calls).toHaveLength(1)
+  const w = weatherFetches(fetches)
+  expect(w).toHaveLength(1)
+  expect(w[0]).toContain('latitude=-23.62&longitude=-46.79')
+})
+
+test('lugar: o IP muda a posição em mais de 1 km, o clima é refeito na hora com o lugar novo', { timeoutMs: 60000 }, async ($, on) => {
+  const NOW = 1_700_000_000_000
+  const { clock, fetches } = world(on, { now: NOW, store: { place: { lat: -22, lon: -47, city: 'Outra', at: NOW - 2 * 60 * 60_000, source: 'ip' } } })
+  await start($)
+  await clock.settle()
+  const w = weatherFetches(fetches)
+  expect(w).toHaveLength(2) // o lugar guardado primeiro, o novo logo depois
+  expect(w[0]).toContain('latitude=-22&')
+  expect(w[1]).toContain('latitude=-23.55&')
 })
 
 // Os botões de desligar a internet: com "off" (ou 0, false) não sai nenhuma requisição.

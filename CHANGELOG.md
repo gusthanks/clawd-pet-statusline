@@ -6,7 +6,9 @@ seguem o [Versionamento Semântico](https://semver.org/lang/pt-BR/).
 
 ## Não lançado
 
-Nada ainda.
+### Adicionado
+
+- O lugar do clima agora segue você no Windows: vem do serviço de localização do Windows (lido localmente pelo `powershell.exe`, nada sai da máquina), e o IP (get.geojs.io, depois ipwho.is) virou só reserva, para quando a localização está negada, desligada, o PowerShell falha ou o sistema não é Windows. `CLAWD_LOCATION` continua ganhando de tudo, e `CLAWD_WEATHER=off` desliga também esta consulta. O lugar guardado agora diz a fonte (`windows`, `ip` ou `env`); um lugar vindo do IP (ou de versão antiga, sem fonte) no Windows é corrigido na primeira oportunidade, sem esperar a hora, e se a fonte muda ou a posição anda mais de 1 km o clima é refeito na hora. Se o Windows falha, o mod só tenta de novo na hora seguinte.
 
 ## 0.2.0 - 2026-10-06
 

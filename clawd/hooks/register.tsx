@@ -12,7 +12,7 @@ import type { Birthday, Flags, SceneKind, Spec } from './scenes'
 import { parseAnsi, prettyModel } from './statusline'
 import { clawdSpan, parseTap, TAP_COMBO_MS, TAP_COMBO_N, TAP_KEY, TAP_LOG_MAX, tapScene } from './tapinha'
 import type { Tap } from './tapinha'
-import { PLACE_EVERY_MS, PLACE_SERVICES, WEATHER_EVERY_MS, WEATHER_STALE_MS, weatherEmoji, weatherUrl, isRaining } from './weather'
+import { kmBetween, parseWindowsPlace, PLACE_EVERY_MS, PLACE_MOVED_KM, PLACE_SERVICES, WEATHER_EVERY_MS, WEATHER_STALE_MS, weatherEmoji, weatherUrl, isRaining, WINDOWS_PLACE_ARGV, WINDOWS_PLACE_TIMEOUT_MS } from './weather'
 import type { Place } from './weather'
 
 // A faixa logo acima da caixa de mensagem (AbovePrompt): a statusline do usuário à
@@ -363,26 +363,86 @@ const hatToday = (now: number) => {
 
 // Open-Meteo, sem chave;
 // os dados "current" mudam a cada 15 minutos. Chuva de verão chega em "showers".
-// Onde ele está agora: pela conexão de internet (geolocalização por IP, nível de cidade),
-// conferido a cada hora e guardado. A variável CLAWD_LOCATION="lat,lon" fixa um lugar.
+// Onde ele está agora, por esta ordem: CLAWD_LOCATION="lat,lon" (fixa, ganha de tudo); o serviço de
+// localização do Windows (lê a posição aqui mesmo, nada sai da máquina); e, de reserva, a conexão de
+// internet (geolocalização por IP, nível de cidade, que pode cair a uns 10 km). Conferido a cada hora e
+// guardado, com a fonte ('windows', 'ip' ou 'env').
 let place: Place | null = null
 let placeNote = 'ainda não consultado'
+let windowsFailedAt: number | null = null // o Windows negou ou falhou: só tenta de novo daqui a PLACE_EVERY_MS
+let windowsRun: Promise<{ lat: number; lon: number; acc: number } | null> | null = null // uma consulta por vez
 
-async function refreshPlace($: EngineInterface) {
+// O Windows PowerShell 5.1 (powershell.exe) pergunta ao serviço de localização. Nunca rejeita: sem
+// powershell, com timeout ou negado, devolve null.
+function windowsPlace($: EngineInterface) {
+  if (windowsRun) return windowsRun
+  const job = (async () => {
+    try {
+      const out = await $.process.run(WINDOWS_PLACE_ARGV, { timeoutMs: WINDOWS_PLACE_TIMEOUT_MS })
+      return out.exitCode === 0 ? parseWindowsPlace(out.stdout) : null
+    } catch {
+      return null
+    }
+  })()
+  windowsRun = job
+  void job.then(() => {
+    if (windowsRun === job) windowsRun = null
+  })
+  return job
+}
+
+// Lê o lugar fixo ou o guardado, sem consultar nada na internet nem no Windows.
+async function loadPlace($: EngineInterface) {
+  const now = await $.clock.now()
+  const fixed = await $.env.get('CLAWD_LOCATION').catch(() => undefined)
+  const m = /^\s*(-?[\d.]+)\s*,\s*(-?[\d.]+)\s*$/.exec(fixed ?? '')
+  if (m) {
+    place = { lat: Number(m[1]), lon: Number(m[2]), city: 'CLAWD_LOCATION', at: now, source: 'env' }
+    placeNote = 'fixo pela variável CLAWD_LOCATION'
+    return true
+  }
+  if (!place) {
+    const saved = (await $.store.get('place').catch(() => undefined)) as Place | undefined
+    if (saved && typeof saved.lat === 'number' && typeof saved.lon === 'number') place = saved
+  }
+  return false
+}
+
+// Troca o lugar e diz se ele mudou de verdade (outra fonte, ou mais de ~1 km). Grava no store só quando algo mudou.
+async function adoptPlace($: EngineInterface, next: Place) {
+  const prev = place
+  place = next
+  const same = prev && prev.lat === next.lat && prev.lon === next.lon && prev.city === next.city && prev.source === next.source
+  if (!same) await $.store.set('place', next).catch(() => undefined)
+  return !prev || (prev.source ?? 'ip') !== next.source || kmBetween(prev, next) > PLACE_MOVED_KM
+}
+
+// Está na hora de perguntar ao Windows? Só no Windows (o mesmo critério do CLAWD_NODE), e não logo depois de
+// uma falha. Pergunta quando o lugar está vencido, ou quando o guardado não veio do Windows (IP ou versão antiga):
+// aí é já, sem esperar a hora.
+async function windowsDue($: EngineInterface) {
+  if ((await $.env.get('OS').catch(() => undefined)) !== 'Windows_NT') return false
+  const now = await $.clock.now()
+  if (windowsFailedAt !== null && now - windowsFailedAt < PLACE_EVERY_MS) return false
+  return !place || now - place.at >= PLACE_EVERY_MS || place.source !== 'windows'
+}
+
+// Devolve true se o lugar mudou de verdade e o clima precisa ser refeito na hora.
+async function refreshPlace($: EngineInterface): Promise<boolean> {
   try {
-    const now = await $.clock.now()
-    const fixed = await $.env.get('CLAWD_LOCATION').catch(() => undefined)
-    const m = /^\s*(-?[\d.]+)\s*,\s*(-?[\d.]+)\s*$/.exec(fixed ?? '')
-    if (m) {
-      place = { lat: Number(m[1]), lon: Number(m[2]), city: 'CLAWD_LOCATION', at: now }
-      placeNote = 'fixo pela variável CLAWD_LOCATION'
-      return
+    if (await loadPlace($)) return false
+    const hourDue = !place || (await $.clock.now()) - place.at >= PLACE_EVERY_MS
+    if (await windowsDue($)) {
+      const fix = await windowsPlace($)
+      if (fix) {
+        windowsFailedAt = null
+        const moved = await adoptPlace($, { lat: fix.lat, lon: fix.lon, city: '', at: await $.clock.now(), source: 'windows' })
+        placeNote = `ok: Windows (precisão ${fix.acc} m)`
+        return moved
+      }
+      windowsFailedAt = await $.clock.now()
     }
-    if (!place) {
-      const saved = (await $.store.get('place').catch(() => undefined)) as Place | undefined
-      if (saved && typeof saved.lat === 'number' && typeof saved.lon === 'number') place = saved
-    }
-    if (place && now - place.at < PLACE_EVERY_MS) return
+    if (!hourDue) return false
     for (const url of PLACE_SERVICES) {
       const res = await fetchTimed($, url)
       if (!res?.ok) continue
@@ -390,17 +450,20 @@ async function refreshPlace($: EngineInterface) {
       const lat = Number(d.latitude)
       const lon = Number(d.longitude)
       if (!Number.isFinite(lat) || !Number.isFinite(lon) || (lat === 0 && lon === 0)) continue
-      place = { lat: Math.round(lat * 100) / 100, lon: Math.round(lon * 100) / 100, city: String(d.city ?? ''), at: now }
-      await $.store.set('place', place).catch(() => undefined)
-      placeNote = `ok: ${place.city} (${url.split('/')[2]})`
-      return
+      const next: Place = { lat: Math.round(lat * 100) / 100, lon: Math.round(lon * 100) / 100, city: String(d.city ?? ''), at: await $.clock.now(), source: 'ip' }
+      const moved = await adoptPlace($, next)
+      placeNote = `ok: ${next.city} (${url.split('/')[2]})${windowsFailedAt === null ? '' : ', o Windows não deu a posição'}`
+      return moved
     }
     placeNote = place ? 'sem resposta: fica o último lugar conhecido' : 'sem resposta e sem lugar guardado'
   } catch (err) {
     placeNote = `erro: ${String(err).slice(0, 200)}`
   }
+  return false
 }
 
+// Primeiro desenha o clima com o último lugar conhecido (a menos que o Windows vá corrigir um lugar vindo do
+// IP, que pode estar a 10 km); depois confere o lugar, e se ele mudou, refaz o clima na hora.
 async function refreshWeather($: EngineInterface) {
   try {
     weatherOff = isOff(await $.env.get('CLAWD_WEATHER').catch(() => undefined))
@@ -409,32 +472,45 @@ async function refreshWeather($: EngineInterface) {
       placeNote = weatherNote
       return
     }
-    await refreshPlace($)
+    await loadPlace($)
+    let drawn = false
+    if (place && !(await windowsDue($))) drawn = await fetchWeather($)
+    const moved = await refreshPlace($)
     if (!place) {
       weatherNote = 'sem lugar: não sei onde você está'
       return
     }
+    if (moved || !drawn) await fetchWeather($)
+  } catch (err) {
+    weatherNote = `erro: ${String(err).slice(0, 200)}`
+  }
+}
+
+// Pergunta o tempo ao Open-Meteo para o lugar de agora. Devolve true se chegou uma leitura boa.
+async function fetchWeather($: EngineInterface): Promise<boolean> {
+  try {
+    if (!place) return false
     const res = await fetchTimed($, weatherUrl(place))
     if (!res) {
       weatherNote = 'sem resposta em 10 s'
-      return
+      return false
     }
     if (!res.ok) {
       weatherNote = `HTTP ${res.status}: ${res.text.slice(0, 200)}`
-      return
+      return false
     }
     const body = JSON.parse(res.text) as { current?: Record<string, unknown>; utc_offset_seconds?: unknown }
     if (typeof body.utc_offset_seconds === 'number') utcOffsetS = body.utc_offset_seconds
     const cur = body.current
     if (!cur) {
       weatherNote = `sem "current": ${res.text.slice(0, 200)}`
-      return
+      return false
     }
     const code = Number(cur.weather_code)
     const temp = Number(cur.temperature_2m)
     if (!Number.isFinite(code) || !Number.isFinite(temp)) {
       weatherNote = `números estranhos: ${JSON.stringify(cur).slice(0, 200)}`
-      return
+      return false
     }
     // precipitação = chuva + pancadas dos últimos 15 minutos
     const rain = isRaining(code, Number(cur.precipitation ?? 0))
@@ -443,8 +519,10 @@ async function refreshWeather($: EngineInterface) {
     const same = prev && prev.emoji === next.emoji && prev.temp === next.temp && prev.rain === next.rain
     if (!same || next.at - prev.at > WEATHER_STALE_MS / 2) await update($, weather, () => next)
     weatherNote = `ok: código ${code}, ${temp}°, chuva ${rain}`
+    return true
   } catch (err) {
     weatherNote = `erro: ${String(err).slice(0, 200)}`
+    return false
   }
 }
 
