@@ -4,7 +4,7 @@
 
 <p align="center"><sub>example with made-up data</sub></p>
 
-**Version:** 0.2.0 · see the [CHANGELOG](CHANGELOG.md).
+**Version:** 0.3.0 · see the [CHANGELOG](CHANGELOG.md).
 
 **Clawd**, the little orange Claude Code crab, living animated in the band right above the
 message box of the app, next to a **statusline** that updates itself (folder, model, context,
@@ -13,6 +13,8 @@ usage limits and the weather where you are).
 He reacts to what is going on: he grabs the laptop when you send a message, puts on glasses
 when Claude reads files, sweats when the context fills up, opens an umbrella when it rains in
 your city, sets off fireworks on `git commit`... The full list is in the [sheet](#the-sheet-what-each-animation-means).
+Each subagent gets a mini-Clawd dressed for its task, and a [progress bar](#progress-bar)
+follows your workflows.
 
 > Fan project, **unofficial**, not affiliated with Anthropic. "Claude", "Claude Code" and
 > Clawd belong to Anthropic. The pixel drawings and the laptop animation in this repository
@@ -20,7 +22,7 @@ your city, sets off fireworks on `git commit`... The full list is in the [sheet]
 
 *[Português abaixo](#português)*
 
-> **Tested only on Windows 11, with app version 2.1.288.** The code finds your user folder in
+> **Tested only on Windows 11, with app versions 2.1.288 and 2.1.293.** The code finds your user folder in
 > a portable way (`~/.claude`), but nobody has run it on macOS or Linux yet. If you try it
 > there, please [open an issue](https://github.com/gusthanks/clawd-pet-statusline/issues)
 > telling us whether it worked, with your system and app version.
@@ -49,7 +51,8 @@ exactly what you see in the app.
 | <img src="docs/sheet/read.svg" width="420"> | **Glasses** | Reading files (Read, Grep, Glob). |
 | <img src="docs/sheet/web.svg" width="420"> | **Magnifier** | Searching the web (WebSearch, WebFetch, browser). |
 | <img src="docs/sheet/edit.svg" width="420"> | **Little hammer** | Editing files (Edit, Write). |
-| <img src="docs/sheet/helpers.svg" width="420"> | **Mini-Clawds** | One per running subagent, each on its own laptop (up to 6; then a "+N" shows up). |
+| <img src="docs/sheet/helpers.svg" width="420"> | **Mini-Clawds** | One per running subagent, each on its own laptop (up to 6; then a "+N" shows up). Each one dresses for its task, read from the task's name (Portuguese and English words), the agent type or its first tool. When it finishes fine, it raises a claw, its hat flies off, and it leaves the bay. |
+| <img src="docs/sheet/team.svg" width="420"> | **Costumes** | Racer with a checkered flag (verify, review, test), pirate with a sword (refute, critique), detective with a magnifier (research, map; `Explore` agents), astronaut (plan, spec; `Plan` agents), engineer with a wrench (implement, fix), painter with a roller (design, visual). Two more: chef with a frying pan (write, docs) and judge with a gavel (judge, decide). No clue in the name: the plain mini-Clawd. |
 | <img src="docs/sheet/ultracode.svg" width="420"> | **Purple aura + light streak** | Ultracode mode, or a workflow running in the background. |
 | <img src="docs/sheet/compact.svg" width="420"> | **Press** | Claude is compacting the conversation context. |
 | <img src="docs/sheet/fireworks.svg" width="420"> | **Fireworks** | Right after a successful `git commit` or `git push`. |
@@ -98,12 +101,31 @@ On Windows the weather place follows you: it is read from the Windows location s
 (Settings > Privacy & security > Location must be on), and the IP lookup, which can land
 kilometers away in the middle of the city, is only the backup.
 
+### Progress bar
+
+<p align="center"><img src="docs/progress.png" width="920" alt="The progress bar in the status line: a workflow's phases as block segments, on a wide and a medium window, when it finishes, and for a task list"></p>
+
+<p align="center"><sub>example with made-up data</sub></p>
+
+While Claude works on something long, a bar shows how far along it is. Nobody has to report
+progress: the mod reads it from what Claude Code already does.
+
+- 🧩 **A workflow:** one block segment per phase, with the name of the phase running now.
+  Each phase fills as its agents finish, and the bar never goes back.
+- 📋 **The task list**, when there is no workflow: the task in progress and how many are done.
+- 🤖 **A batch of helpers**, when there is neither: how many finished.
+
+The band never grows for it. On a wide window the bar takes the empty first row; otherwise it
+becomes a segment at the end of a row, and shrinks (down to `🧩 2/3`) when space is short.
+When a workflow finishes, the bar fills up with ✅ for 5 seconds and Clawd raises a claw;
+if it fails or is stopped, ❌ freezes the bar for 8 seconds and Clawd gets startled.
+
 ---
 
 ## Install
 
 **You need:** the Claude Code app (Code tab, on desktop) in a version with mod support
-(tested on 2.1.288) and [Node.js](https://nodejs.org) 18 or newer.
+(tested on 2.1.288 and 2.1.293) and [Node.js](https://nodejs.org) 18 or newer.
 
 ```bash
 git clone https://github.com/gusthanks/clawd-pet-statusline.git
@@ -162,6 +184,10 @@ Nothing else leaves your machine, and nothing is stored outside it. With `CLAWD_
 neither the Windows lookup nor the IP lookup happens. To keep the mod off the internet entirely, put
 `CLAWD_WEATHER=off` and `CLAWD_LIMITS=off` in the `env` of settings.json.
 
+The costumes and the progress bar talk to no one: they only read what Claude Code itself
+writes on your machine (each subagent's task name, and a workflow's script and run files
+under `~/.claude/projects`).
+
 ---
 
 ## In the terminal
@@ -189,7 +215,7 @@ License: [MIT](LICENSE).
 
 ## Português
 
-**Versão:** 0.2.0 · veja o [CHANGELOG](CHANGELOG.md).
+**Versão:** 0.3.0 · veja o [CHANGELOG](CHANGELOG.md) (em inglês).
 
 O **Clawd**, o caranguejinho laranja do Claude Code, morando animado na faixa logo acima da
 caixa de mensagem do app, ao lado de uma **statusline** que se atualiza sozinha (pasta,
@@ -198,12 +224,14 @@ modelo, contexto, limites de uso e o clima de onde você está).
 Ele reage ao que está acontecendo: pega o laptop quando você manda mensagem, põe óculos
 quando o Claude lê arquivos, sua quando o contexto enche, abre o guarda-chuva quando chove
 na sua cidade, solta fogos no `git commit`... A lista completa está na [sheet](#a-sheet-o-que-cada-animação-quer-dizer).
+Cada subagente ganha um mini-Clawd fantasiado conforme a tarefa, e uma
+[barra de progresso](#barra-de-progresso) acompanha os seus workflows.
 
 > Projeto de fã, **não oficial**, sem ligação com a Anthropic. "Claude", "Claude Code" e o
 > Clawd são da Anthropic. Os desenhos em pixel e a animação do laptop deste repositório
 > foram feitos para ele.
 
-> **Testado só no Windows 11, com o app na versão 2.1.288.** O código acha a sua pasta de
+> **Testado só no Windows 11, com o app nas versões 2.1.288 e 2.1.293.** O código acha a sua pasta de
 > usuário de forma portátil (`~/.claude`), mas ninguém rodou no Mac nem no Linux ainda. Se você
 > testar por lá, por favor [abra uma issue](https://github.com/gusthanks/clawd-pet-statusline/issues)
 > contando se funcionou, com o seu sistema e a versão do app.
@@ -232,7 +260,8 @@ o que aparece no app.
 | <img src="docs/sheet/read.svg" width="420"> | **Óculos** | Lendo arquivos (Read, Grep, Glob). |
 | <img src="docs/sheet/web.svg" width="420"> | **Lupa** | Pesquisando na web (WebSearch, WebFetch, navegador). |
 | <img src="docs/sheet/edit.svg" width="420"> | **Martelinho** | Editando arquivos (Edit, Write). |
-| <img src="docs/sheet/helpers.svg" width="420"> | **Mini-Clawds** | Um por subagente rodando, cada um no seu laptop (até 6; depois aparece "+N"). |
+| <img src="docs/sheet/helpers.svg" width="420"> | **Mini-Clawds** | Um por subagente rodando, cada um no seu laptop (até 6; depois aparece "+N"). Cada um se veste conforme a tarefa, pelo nome dela (palavras em português e inglês), pelo tipo do agente ou pela primeira ferramenta. Quando termina bem, levanta a garra, o chapéu voa e ele sai da baia. |
+| <img src="docs/sheet/team.svg" width="420"> | **Fantasias** | Piloto com bandeira quadriculada (verificar, revisar, testar), pirata com espada (refutar, criticar), detetive com lupa (pesquisar, mapear; agentes `Explore`), astronauta (planejar, spec; agentes `Plan`), engenheiro com chave (implementar, corrigir), pintor com rolo (desenhar, visual). E mais dois: chef com frigideira (escrever, docs) e juiz com martelo (julgar, decidir). Sem pista no nome: o mini-Clawd de sempre. |
 | <img src="docs/sheet/ultracode.svg" width="420"> | **Aura roxa + faixa de luz** | Modo ultracode, ou um workflow rodando em segundo plano. |
 | <img src="docs/sheet/compact.svg" width="420"> | **Prensa** | O Claude está compactando o contexto da conversa. |
 | <img src="docs/sheet/fireworks.svg" width="420"> | **Fogos** | Logo depois de um `git commit` ou `git push` que deu certo. |
@@ -281,12 +310,28 @@ No Windows o lugar do clima segue você: ele é lido do serviço de localizaçã
 (Configurações > Privacidade e segurança > Localização precisa estar ligada), e a consulta
 por IP, que pode cair a quilômetros de você, no centro da cidade, fica só de reserva.
 
+### Barra de progresso
+
+Enquanto o Claude faz algo demorado, uma barra mostra quanto já andou (a imagem está na
+[seção em inglês](#progress-bar)). Ninguém precisa avisar o progresso: o mod lê do que o
+próprio Claude Code já faz.
+
+- 🧩 **Um workflow:** um trecho de blocos por fase, com o nome da fase que está rodando.
+  Cada fase enche conforme os agentes dela terminam, e a barra nunca anda para trás.
+- 📋 **A lista de tarefas**, quando não há workflow: a tarefa em andamento e quantas já foram feitas.
+- 🤖 **Um lote de ajudantes**, quando não há nenhum dos dois: quantos terminaram.
+
+A faixa nunca cresce por causa dela. Na janela larga a barra ocupa a primeira linha, que ficava
+vazia; senão vira um pedaço no fim de uma linha, e encolhe (até `🧩 2/3`) quando falta espaço.
+Quando um workflow termina, a barra enche com ✅ por 5 segundos e o Clawd levanta a garra; se
+falha ou é parado, o ❌ congela a barra por 8 segundos e o Clawd leva um susto.
+
 ---
 
 ## Instalação
 
 **Você precisa de:** o app do Claude Code (aba Code, no desktop) numa versão com mods
-(testado na 2.1.288) e o [Node.js](https://nodejs.org) 18 ou mais novo.
+(testado na 2.1.288 e na 2.1.293) e o [Node.js](https://nodejs.org) 18 ou mais novo.
 
 ```bash
 git clone https://github.com/gusthanks/clawd-pet-statusline.git
@@ -345,6 +390,10 @@ Nada sai da sua máquina além disso, e nada é guardado fora dela. Com `CLAWD_L
 nem a consulta ao Windows nem a de IP acontecem. Para o mod não falar com a internet nenhuma, ponha
 `CLAWD_WEATHER=off` e `CLAWD_LIMITS=off` no `env` do settings.json.
 
+As fantasias e a barra de progresso não falam com ninguém: só leem o que o próprio Claude Code
+grava na sua máquina (o nome da tarefa de cada subagente, e o script e os arquivos de execução
+de um workflow em `~/.claude/projects`).
+
 ---
 
 ## No terminal
@@ -367,6 +416,9 @@ clawd/                  o mod (plugin de function hooks)
   hooks/weather.ts      o clima: endereços e o código do tempo em emoji
   hooks/git.ts          as linhas mexidas e a detecção de commit e push
   hooks/tapinha.ts      o tapinha: onde o clique acerta e a cena da reação
+  hooks/fantasias.ts    as fantasias dos mini-Clawds e quem veste qual, pelo nome da tarefa
+  hooks/equipe.ts       a baia dos mini-Clawds: o mini com a fantasia e a festa de quem terminou
+  hooks/progresso.ts    a barra de progresso: as fases, o preenchimento e onde ela cabe
   hooks/art.ts          os desenhos em SVG (corpo, olhos, acessórios, efeitos)
   hooks/laptop.ts       os quadros do laptop (gerado por tools/laptop.py)
   hooks/tap.tsx         a área invisível que recebe o tapinha

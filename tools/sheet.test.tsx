@@ -40,6 +40,8 @@ function world(on: On, o: Opts = {}) {
   on('turn.complete', () => ({ text: '' }))
   on('prompt.attachment', ($, e) => ({ text: e.text }))
   on('classic.SubagentStart', () => ({}))
+  let spawned = 0
+  on('agent.spawn', () => ({ model: 'claude-opus-5-5', agentId: `a${++spawned}` }))
   on('classic.Stop', () => ({}))
   on('classic.PermissionRequest', () => ({}))
   on('agent.list', () => ({ value: [] }))
@@ -166,8 +168,9 @@ test('rain-work', T, async ($, on) => {
   const c = world(on, { weather: 63 })
   await begin($, c)
   await ($ as Any).turn.start({ text: 'oi', turnId: 't' })
-  // dois subagentes rodando: cada mini-Clawd também ganha o seu guarda-chuva
-  for (const id of ['a1', 'a2']) await ($ as Any).classic.SubagentStart({ agent_id: id, agent_type: 'general-purpose' })
+  // dois subagentes rodando: cada mini-Clawd também ganha o seu guarda-chuva (a fantasia fica sem chapéu)
+  await hire($, ['verificar: limites', 'mapear: faixa'])
+  await c.advance(1500) // o tique grava a baia antes do primeiro desenho (o deslize acaba dentro do typing)
   await typing($, c, 'rain-work')
 })
 
@@ -177,16 +180,40 @@ test('holiday', T, async ($, on) => {
   await shot($, 'holiday', false)
 })
 
+// Ajudantes nascendo como o motor faz (agent.spawn com o rótulo, depois SubagentStart): cada um
+// veste a fantasia da tarefa.
+async function hire($: Any, labels: string[]) {
+  for (const description of labels) {
+    const r = await $.agent.spawn({ tool_use_id: 'toolu_1', prompt: 'faça', provider: { plugin: 'engine', tier: 'core' }, parentModel: 'claude-opus-5-5', background: true, fork: false, description, subagentType: 'general-purpose' })
+    await $.classic.SubagentStart({ agent_id: r.agentId, agent_type: 'general-purpose' })
+  }
+}
+
+// A baia só abre no tique seguinte (a equipe é gravada no tique de 1 s) e aí o Clawd desliza para
+// o lado em 0,6 s: a foto espera os dois, para mostrar ele já parado ao lado da baia.
+async function crewShot($: Any, c: Any, name: string, labels: string[]) {
+  await hire($, labels)
+  let ui = await mountBand($, false)
+  await ui.unmount()
+  await c.advance(1500) // o tique grava a baia
+  ui = await mountBand($, false) // a baia abre e ele começa a deslizar
+  await ui.unmount()
+  await c.advance(1500) // o deslize acabou
+  ui = await mountBand($, false)
+  await print(ui, name)
+  await ui.unmount()
+}
+
 test('helpers', T, async ($, on) => {
   const c = world(on)
   await begin($, c)
-  for (const id of ['a1', 'a2', 'a3']) await ($ as Any).classic.SubagentStart({ agent_id: id, agent_type: 'general-purpose' })
-  let ui = await mountBand($, false) // a baia abre e ele desliza para o lado
-  await ui.unmount()
-  await c.advance(1500)
-  ui = await mountBand($, false)
-  await print(ui, 'helpers')
-  await ui.unmount()
+  await crewShot($, c, 'helpers', ['verificar: limites', 'refutar: a ideia', 'mapear: faixa'])
+})
+
+test('team', T, async ($, on) => {
+  const c = world(on)
+  await begin($, c)
+  await crewShot($, c, 'team', ['verificar: limites', 'refutar: a ideia', 'mapear: faixa', 'planejar: etapas', 'implementar: testes', 'desenhar: trilho'])
 })
 
 test('fireworks', T, async ($, on) => {
