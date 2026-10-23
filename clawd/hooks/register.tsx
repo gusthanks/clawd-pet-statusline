@@ -13,6 +13,8 @@ import { LIMITS_BACKOFF_MS, LIMITS_EVERY_MS, LIMITS_FRESH_MS, USAGE_URL, windowO
 import type { Window } from './limits'
 import { activityFor, ALT, ASK_S, BREAK_GAP_S, buildScene, FIREWORKS_S, hatFor, parseBirthday, OOPS_S, PARTY_S, PASS_S, PAUSE_EVERY_S, PAUSE_S, posAt, SLEEP_NIGHT_S, SLEEP_S, STREAK_S } from './scenes'
 import type { Birthday, Flags, SceneKind, Spec } from './scenes'
+import { frameAt, parseSvg } from './raster'
+import type { Doc } from './raster'
 import { parseAnsi, prettyModel } from './statusline'
 import { clawdSpan, parseTap, TAP_COMBO_MS, TAP_COMBO_N, TAP_KEY, TAP_LOG_MAX, tapScene } from './tapinha'
 import type { Tap } from './tapinha'
@@ -37,6 +39,7 @@ import type { Place } from './weather'
 //   fantasias.ts   as fantasias dos ajudantes e quem veste qual, pela tarefa
 //   equipe.ts      a baia dos ajudantes: o mini com a fantasia, a festa de quem terminou
 //   progresso.ts   a barra de progresso (texto na coluna da statusline): o que mostra e onde cabe
+//   raster.ts      a pista no terminal: o SVG do desktop lido e desenhado em células, quadro a quadro
 //   art.ts, laptop.ts  os desenhos
 
 const mood = atom({ plugin: 'clawd', key: 'mood' } as const, 'idle' as ClawdMood)
@@ -919,8 +922,99 @@ function sceneFor(kind: SceneKind, now: number, travel: number, parked: boolean)
   return scene
 }
 
-// Logo do Claude Code em blocos, para o terminal (que não desenha SVG e já tem statusline).
+// Logo do Claude Code em blocos: o terminal sem espaço para a pista (faixa baixa ou estreita demais).
 const TERMINAL_ART = [' ▐▛███▜▌ ', '▝▜█████▛▘', '  ▘▘ ▝▝  ']
+
+// ---------- o desenho da pista ----------
+
+// O SVG da pista (o mesmo no desktop e no terminal) e quantos mini-Clawds cabem na baia.
+// laneEst: a largura da pista em px; laneW: a medida de verdade, quando há (o quanto ele anda).
+type LaneInput = {
+  kind: SceneKind
+  now: number
+  laneEst: number
+  laneW: number
+  height: number
+  mates: TeamMate[]
+  tool: Activity
+  skyNow: Weather | null
+  isUltra: boolean
+  boom: boolean
+}
+
+function laneArt({ kind, now, laneEst, laneW, height, mates, tool, skyNow, isUltra, boom }: LaneInput): { art: string; cap: number } {
+  // Os mini-Clawds só ganham baia se ainda sobrar uns 60 px pro Clawd andar.
+  const cap = fitMinis((laneEst - PAD - 60) / CELL - BOX_W)
+  const travel = laneEst - PAD - (BOX_W + helpersZone(mates.length, cap)) * CELL
+  const parked = travel < PARK_PX
+  // a pista nunca passa de LANE_W: com isso o SVG fica sempre abaixo do limite do app
+  const sceneTravel = Math.min(Math.max(80, travel), LANE_W - PAD - BOX_W * CELL)
+  const sc = sceneFor(kind, now, sceneTravel, parked)
+  // com 10% de folga, para ele nunca passar da beira esquerda mesmo se a coluna for mais estreita que CH_PX
+  const reach = Math.max(0, 0.9 * (laneW - PAD - (BOX_W + 1 + helpersZone(mates.length, cap)) * CELL))
+  lastLane = { travel: sceneTravel, parked, reach } // o tapinha continua a cena a partir daqui
+  const zone = helpersZone(mates.length, cap)
+  if (zone !== laneZone) {
+    // preso pela direita: a baia crescer empurra ele inteiro para a esquerda; ele desliza até lá
+    zoneShift = { dx: zone - laneZone, at: now }
+    laneZone = zone
+  }
+  const shift = zoneShift && now - zoneShift.at < 600 ? { dx: zoneShift.dx, ago: (now - zoneShift.at) / 1000 } : null
+  const flags: Flags = {
+    tired,
+    worried,
+    morning: nowHour >= 6 && nowHour < 11,
+    night: nowHour < 5,
+    tool,
+    rain: !!skyNow?.rain,
+    ultra: isUltra,
+    hat: hatToday(now),
+  }
+  const elapsed = (now - sc.startedAt) / 1000
+  const boomAgo = !boom ? null : fireworksUntilAt >= 0 ? Math.max(0, (now - fireworksUntilAt) / 1000 + FIREWORKS_S) : now / 1000
+  // o app recusa SVG acima de 131072 caracteres: nos casos extremos, sem fogos (e, se preciso, sem fantasias)
+  return { art: fitLane(sc.spec, elapsed, flags, height, { team: mates, cap, fireworks: boomAgo, shift, reach }, now / 1000), cap }
+}
+
+// ---------- a pista no terminal ----------
+
+// O terminal não desenha SVG: a faixa leva uma grade de células (Raster) e um relógio próprio a
+// repinta (com $.ui.blit, sem redesenhar a faixa) a partir do MESMO SVG do desktop (raster.ts).
+// Só a statusline fica de fora: o terminal já tem a dele. A cada redesenho da faixa (o humor mudou,
+// a janela mudou de largura) o SVG novo é lido de novo e o relógio continua dele.
+const TERM_ROWS = 7 // linhas da pista: o Clawd tem 6, e sobra uma para o pulo e o guarda-chuva
+const TERM_MIN_ROWS = 6
+const TERM_MIN_COLS = 24
+const TERM_FRAME_MS = 80 // ~12 quadros por segundo, o ritmo da animação do laptop
+const TERM_KEY = 'clawd-pista'
+let termLane: { requestId: string; art: string; doc: Doc; born: number; cols: number; rows: number; last: string; paused: boolean } | null = null
+let termTickerOn = false
+let termBusy = false
+
+function startTerminalTicker($: EngineInterface) {
+  if (termTickerOn) return
+  termTickerOn = true
+  $.clock.every(TERM_FRAME_MS, () => {
+    void paintTerminal($).catch(() => undefined)
+  })
+}
+
+async function paintTerminal($: EngineInterface) {
+  const lane = termLane
+  if (!lane || lane.paused || termBusy) return
+  termBusy = true
+  try {
+    const now = await $.clock.now()
+    const cells = frameAt(lane.doc, (now - lane.born) / 1000, lane.cols, lane.rows, CELL)
+    if (cells === lane.last) return
+    const res = await $.ui.blit({ requestId: lane.requestId, key: TERM_KEY, cells, columns: lane.cols, rows: lane.rows })
+    // recusado (a faixa recolhida, uma pesquisa no lugar dela, outro tamanho): para até o próximo redesenho
+    if (res.deny) lane.paused = true
+    else lane.last = cells
+  } finally {
+    termBusy = false
+  }
+}
 
 // ---------- o tapinha ----------
 
@@ -1245,7 +1339,7 @@ async function stepClock($: EngineInterface) {
 }
 
 // Os relógios (humor, ajudantes, statusline, limites, clima) só servem para desenhar a
-// faixa, e ela só existe no desktop: no terminal e nos "claude -p" o mod fica parado.
+// faixa: no desktop e no terminal (que desenha a pista em células); nos "claude -p" o mod fica parado.
 // Numa conversa nova o app se conecta DEPOIS do session.start, por isso a chegada
 // dele (session.attach) também liga; num recarregamento ele já está lá.
 // A conversa abre com a última statusline desta pasta enquanto a leitura nova não chega.
@@ -1418,6 +1512,10 @@ export const register: Register = on => {
     // num recarregamento o app já está conectado; numa conversa nova, o session.attach abaixo liga
     const surfaces = await $.session.surfaces().catch(() => [] as readonly string[])
     if (e.surface === 'desktop' || surfaces.includes('desktop')) startBandPollers($)
+    if (e.surface === 'terminal' || surfaces.includes('terminal')) {
+      startBandPollers($)
+      startTerminalTicker($)
+    }
 
     return next(e)
   })
@@ -1425,6 +1523,12 @@ export const register: Register = on => {
   on('session.attach', { surface: 'desktop' }, async ($, e, next) => {
     startBandPollers($)
     await touchSession($)
+    return next(e)
+  })
+
+  on('session.attach', { surface: 'terminal' }, async ($, e, next) => {
+    startBandPollers($)
+    startTerminalTicker($)
     return next(e)
   })
 
@@ -1808,7 +1912,7 @@ export const register: Register = on => {
     const reacting = await read($, reaction)
     const kind: SceneKind = calling ? 'ask' : squeezing ? 'compact' : reacting ? reacting : e.props.isWorking ? 'work' : stored
 
-    if (e.surface !== 'desktop') {
+    const logo = () => {
       const { Box, Text } = $.ui.resolve(e)
       return (
         <Box flexDirection="column">
@@ -1818,24 +1922,43 @@ export const register: Register = on => {
         </Box>
       )
     }
+    if (e.surface !== 'desktop' && e.surface !== 'terminal') return logo()
 
-    // a janela mudou de largura e a statusline troca de formato: o próximo tique já refaz
-    if (wideFits(e.props.bodyColumns) !== wideFits(lastCols)) statusDirty = true
-    lastCols = e.props.bodyColumns
     const now = await $.clock.now()
     nowHour = hourHere(now)
-    const base = await read($, status)
     const tool = await read($, activity)
     const sky = await read($, weather)
     const mates = teamOf(await read($, team))
     const boom = await read($, fireworks)
     const isUltra = await read($, ultra)
-    const prog = progressOf(await read($, progress)) // um valor velho ou estragado vira "sem barra"
     await read($, taps) // cada tapinha que acerta o Clawd redesenha a faixa na hora
+    const skyNow = !weatherOff && sky && now - sky.at < WEATHER_STALE_MS ? sky : null // leitura velha não aparece
+
+    if (e.surface === 'terminal') {
+      // a pista ocupa a faixa toda (a statusline do terminal já fica embaixo do prompt)
+      const cols = e.props.bodyColumns
+      const tall = Math.min(TERM_ROWS, e.props.maxRows)
+      if (tall < TERM_MIN_ROWS || cols < TERM_MIN_COLS) {
+        termLane = null
+        return logo()
+      }
+      const width = cols * 2 * CELL // 1 coluna = 1 pixel do Clawd = 2 células do desenho
+      const { art } = laneArt({ kind, now, laneEst: width, laneW: width, height: tall * 4 * CELL, mates, tool, skyNow, isUltra, boom })
+      const doc = termLane?.art === art ? termLane.doc : parseSvg(art)
+      const cells = frameAt(doc, 0, cols, tall, CELL)
+      termLane = { requestId: e.requestId, art, doc, born: now, cols, rows: tall, last: cells, paused: false }
+      const { Raster } = $.ui.resolve(e)
+      return <Raster key={TERM_KEY} columns={cols} rows={tall} cells={cells} />
+    }
+
+    // a janela mudou de largura e a statusline troca de formato: o próximo tique já refaz
+    if (wideFits(e.props.bodyColumns) !== wideFits(lastCols)) statusDirty = true
+    lastCols = e.props.bodyColumns
+    const base = await read($, status)
+    const prog = progressOf(await read($, progress)) // um valor velho ou estragado vira "sem barra"
 
     // A statusline dele, mais o clima ao lado da pasta.
     const rows: StatusSpan[][] = base.map(l => [...l])
-    const skyNow = !weatherOff && sky && now - sky.at < WEATHER_STALE_MS ? sky : null // leitura velha não aparece
     if (skyNow && rows.length) rows[0] = [...rows[0], { t: '  ' }, { t: `${skyNow.emoji} ${Math.round(skyNow.temp)}°` }]
 
     // A pista é o que sobra à direita da statusline. Se não sobra o bastante (a faixa
@@ -1844,10 +1967,6 @@ export const register: Register = on => {
     const textCols = rows.reduce((most, l) => Math.max(most, [...l.map(s => s.t).join('')].length + 2), 0)
     const sideBySide = rows.length === 0 || e.props.bodyColumns - textCols - LANE_GAP_CH >= LANE_MIN_CH
     const laneEst = Math.max(0, (sideBySide ? e.props.bodyColumns - textCols - LANE_GAP_CH : e.props.bodyColumns) * CH_PX)
-    // Os mini-Clawds só ganham baia se ainda sobrar uns 60 px pro Clawd andar.
-    const cap = fitMinis((laneEst - PAD - 60) / CELL - BOX_W)
-    const travel = laneEst - PAD - (BOX_W + helpersZone(mates.length, cap)) * CELL
-    const parked = travel < PARK_PX
     const height = sideBySide ? Math.max(LANE_MIN_H, Math.round(rows.length * LINE_PX)) : LANE_MIN_H
     // A barra de progresso entra DEPOIS das medidas acima: nenhuma delas muda com ela. Cabendo mais
     // uma linha sem a faixa crescer (a statusline larga, de 2 linhas), ela é a 1ª linha (a coluna
@@ -1856,38 +1975,10 @@ export const register: Register = on => {
     // largura da faixa (e corta cada linha ali), então o segmento nunca passa dela.
     const ownLine = sideBySide && rows.length > 0 && (rows.length + 1) * LINE_PX <= LANE_MIN_H
     const placed: Placed = placeBar(rows, prog, ownLine, sideBySide ? Infinity : e.props.bodyColumns)
+    // quanto ele anda, em px: pela largura medida da pista (se já houver), senão pela estimativa
+    const { art: laneArtSvg, cap } = laneArt({ kind, now, laneEst, laneW: laneCols > 0 ? laneCols * CH_PX : laneEst, height, mates, tool, skyNow, isUltra, boom })
     lastCap = cap
     lastBand = { onde: placed.where || null, formato: placed.format || null, colunas_texto: textCols, lado_a_lado: sideBySide, altura: height, pista_px: Math.round(laneEst), baia: cap }
-
-    // a pista nunca passa de LANE_W: com isso o SVG fica sempre abaixo do limite do app
-    const sceneTravel = Math.min(Math.max(80, travel), LANE_W - PAD - BOX_W * CELL)
-    const sc = sceneFor(kind, now, sceneTravel, parked)
-    // quanto ele anda, em px: pela largura medida da pista (se já houver) e com 10% de folga, para
-    // ele nunca passar da beira esquerda mesmo se a coluna for mais estreita que CH_PX
-    const laneW = laneCols > 0 ? laneCols * CH_PX : laneEst
-    const reach = Math.max(0, 0.9 * (laneW - PAD - (BOX_W + 1 + helpersZone(mates.length, cap)) * CELL))
-    lastLane = { travel: sceneTravel, parked, reach } // o tapinha continua a cena a partir daqui
-    const zone = helpersZone(mates.length, cap)
-    if (zone !== laneZone) {
-      // preso pela direita: a baia crescer empurra ele inteiro para a esquerda; ele desliza até lá
-      zoneShift = { dx: zone - laneZone, at: now }
-      laneZone = zone
-    }
-    const shift = zoneShift && now - zoneShift.at < 600 ? { dx: zoneShift.dx, ago: (now - zoneShift.at) / 1000 } : null
-    const flags: Flags = {
-      tired,
-      worried,
-      morning: nowHour >= 6 && nowHour < 11,
-      night: nowHour < 5,
-      tool,
-      rain: !!skyNow?.rain,
-      ultra: isUltra,
-      hat: hatToday(now),
-    }
-    const elapsed = (now - sc.startedAt) / 1000
-    const boomAgo = !boom ? null : fireworksUntilAt >= 0 ? Math.max(0, (now - fireworksUntilAt) / 1000 + FIREWORKS_S) : now / 1000
-    // o app recusa SVG acima de 131072 caracteres: nos casos extremos, sem fogos (e, se preciso, sem fantasias)
-    const laneArt = fitLane(sc.spec, elapsed, flags, height, { team: mates, cap, fireworks: boomAgo, shift, reach }, now / 1000)
 
     const { Box, Text, Svg, Client } = $.ui.resolve(e)
     const text = rows.length
@@ -1909,7 +2000,7 @@ export const register: Register = on => {
       <Box flexDirection={sideBySide ? 'row' : 'column'} alignItems={sideBySide ? 'flex-end' : 'stretch'}>
         {text}
         <Box flexDirection="column" flexGrow={1} minWidth={sideBySide ? LANE_MIN_CH : 0} marginLeft={sideBySide && rows.length ? LANE_GAP_CH : 0}>
-          <Svg source={laneArt} alt={ALT[kind]} width={LANE_W} height={height} />
+          <Svg source={laneArtSvg} alt={ALT[kind]} width={LANE_W} height={height} />
           {/* a área de clique: invisível, por cima da pista; presa dentro dela (overflow), pra nunca vazar
               sobre a caixa de mensagem */}
           <Box position="absolute" top={0} left={0} right={0} bottom={0} overflow="hidden">

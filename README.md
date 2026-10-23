@@ -192,9 +192,14 @@ under `~/.claude/projects`).
 
 ## In the terminal
 
-The mod also loads in the terminal `claude`, but there you only get the orange block logo
-above the prompt, because the terminal can't draw the animations. In automatic commands
-(`claude -p`) he stays still and costs nothing.
+In the terminal `claude` Clawd is animated too: the same lane as the app, drawn with colored
+half blocks (`▀▄█`) in a 7-row band above the prompt, about 12 frames a second. Every scene is
+there (laptop, party, rain, mini-Clawds, fireworks...). Only the statusline stays out, because
+the terminal already has its own below the prompt, and there is no tap. A band shorter than 6 rows
+or narrower than 24 columns falls back to the orange block logo. Collapse the band with
+ctrl+x ctrl+a. In automatic commands (`claude -p`) he stays still and costs nothing.
+
+> Tested on Linux (Omarchy, Ghostty) with Claude Code 2.1.309.
 
 ---
 
@@ -398,9 +403,14 @@ de um workflow em `~/.claude/projects`).
 
 ## No terminal
 
-O mod também carrega no `claude` do terminal, mas lá só aparece o logo laranja em blocos
-acima do prompt, porque o terminal não desenha as animações. Nos comandos automáticos
-(`claude -p`) ele fica parado e não gasta nada.
+No `claude` do terminal o Clawd também é animado: a mesma pista do app, desenhada com meios
+blocos coloridos (`▀▄█`) numa faixa de 7 linhas acima do prompt, a uns 12 quadros por segundo.
+Todas as cenas estão lá (laptop, festa, chuva, mini-Clawds, fogos...). Só a statusline fica de fora,
+porque o terminal já tem a dele embaixo do prompt, e não tem tapinha. Uma faixa com menos de 6 linhas
+ou 24 colunas volta ao logo laranja em blocos. Para recolher a faixa: ctrl+x ctrl+a. Nos comandos
+automáticos (`claude -p`) ele fica parado e não gasta nada.
+
+> Testado no Linux (Omarchy, Ghostty) com o Claude Code 2.1.309.
 
 ---
 
@@ -412,6 +422,7 @@ clawd/                  o mod (plugin de function hooks)
   hooks/scenes.ts       as cenas: o que ele faz em cada humor, passo a passo
   hooks/lane.ts         o SVG da pista: medidas, animações e o desenho final
   hooks/statusline.ts   as cores do terminal (ANSI) e o nome do modelo
+  hooks/raster.ts       a pista no terminal: o SVG lido e desenhado em células, quadro a quadro
   hooks/limits.ts       a consulta dos limites: endereço, ritmo, leitura
   hooks/weather.ts      o clima: endereços e o código do tempo em emoji
   hooks/git.ts          as linhas mexidas e a detecção de commit e push

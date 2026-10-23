@@ -8,6 +8,7 @@ import { COSTUME_KINDS, costumeFor, settleCostume } from './fantasias'
 import type { CostumeHints } from './fantasias'
 import { BOX_H, BOX_W, CELL, fitLane, LANE_W, laneSvg, PAD, phased, SVG_SAFE } from './lane'
 import { buildScene, stand, WALK_PX } from './scenes'
+import { frameAt, parseSvg as readSvg } from './raster'
 import type { Flags, SceneKind, Spec, Step } from './scenes'
 import type { Costume, Progress, StatusSpan, TeamMate } from '../types'
 import { advance, barFor, cols, endOf, endStatus, finalFileOf, finishRun, lineCols, loadRuns, newRun, parsePhases, phaseOfLabel, phaseOfTitle, pickLine, placeBar, progressOf, relaunch, runProgress, saveRun, sessionDirOf, setPhases, settled, verdictOf } from './progresso'
@@ -126,10 +127,64 @@ test('de madrugada com chuva: as estrelas somem e a lua fica', { timeoutMs: 6000
   expect(src).not.toContain('#fff3c4')
 })
 
-test('no terminal, a faixa desenha o logo em blocos', async $ => {
-  const ui = await $.ui.mount({ plugin: 'clawd', surface: 'terminal', ...band(false) })
+// As células de um Raster (RasterProps.cells): trincas [caractere, frente, fundo].
+const cellsOf = (b64: string) => {
+  const bin = atob(b64)
+  const bytes = Uint8Array.from(bin, c => c.charCodeAt(0))
+  return new Uint32Array(bytes.buffer)
+}
+const ORANGE_RGB = 0xd87656
+const orangeCells = (words: Uint32Array) => {
+  let n = 0
+  for (let i = 0; i < words.length; i += 3) if (words[i + 1] === ORANGE_RGB || words[i + 2] === ORANGE_RGB) n++
+  return n
+}
+
+test('no terminal, a faixa desenha a pista do Clawd em células (Raster)', async ($, on) => {
+  mock.clock(on, { now: 1_700_000_000_000 })
+  for (const isWorking of [false, true]) {
+    const ui = await $.ui.mount({ plugin: 'clawd', surface: 'terminal', ...band(isWorking) })
+    const raster = await ui.find({ type: 'Raster' })
+    expect(raster).toBeDefined()
+    expect(raster?.props.columns).toBe(120)
+    expect(raster?.props.rows).toBe(7)
+    const words = cellsOf(String(raster?.props.cells))
+    expect(words.length).toBe(120 * 7 * 3)
+    expect(orangeCells(words)).toBeGreaterThan(20) // o Clawd está lá, em laranja
+    await ui.unmount()
+  }
+})
+
+test('no terminal, uma faixa baixa demais fica com o logo em blocos', async ($, on) => {
+  mock.clock(on, { now: 1_700_000_000_000 })
+  const short = { ...band(false), props: { ...band(false).props, maxRows: 4 } }
+  const ui = await $.ui.mount({ plugin: 'clawd', surface: 'terminal', ...short })
   expect(await ui.find({ type: 'Text', text: /▐▛███▜▌/ })).toBeDefined()
+  expect(await ui.find({ type: 'Raster' })).toBeUndefined()
   await ui.unmount()
+})
+
+test('raster: o SVG animado vira células, e o quadro muda com o tempo', () => {
+  // um quadrado de 2 x 2 pontos (um pixel) andando 8 pontos para a direita em 1 s
+  const svg =
+    `<svg width="100%" height="100%"><rect x="0" y="0" width="${2 * CELL}" height="${2 * CELL}" fill="#D87656">` +
+    `<animateTransform attributeName="transform" type="translate" values="0 0;${8 * CELL} 0" dur="1s" fill="freeze"/></rect></svg>`
+  const doc = readSvg(svg)
+  const at = (t: number) => cellsOf(frameAt(doc, t, 10, 2, CELL))
+  const col = (w: Uint32Array) => {
+    for (let i = 0; i < w.length; i += 3) if (w[i + 1] === ORANGE_RGB) return i / 3
+    return -1
+  }
+  expect(col(at(0))).toBe(0)
+  expect(col(at(1))).toBe(4)
+  expect(at(0)[0]).toBe(0x2580) // ▀: só a metade de cima da célula
+})
+
+test('raster: o texto do desenho vira letras nas células', () => {
+  const svg = `<svg width="100%" height="100%"><text x="${4 * CELL}" y="${3 * CELL}" font-size="4" fill="#8b95a5">z</text></svg>`
+  const words = cellsOf(frameAt(readSvg(svg), 0, 10, 2, CELL))
+  const glyphs = [...Array(words.length / 3).keys()].map(i => words[i * 3])
+  expect(glyphs).toContain('z'.codePointAt(0)!)
 })
 
 test('no desktop, a statusline aparece ao lado da pista, com o clima', async ($, on) => {
@@ -477,8 +532,10 @@ test('tapinha: a pista ganha uma área de clique que não desenha nada visível;
   expect(boxes.some((b: { props: Record<string, unknown> }) => b.props.position === 'absolute' && b.props.overflow === 'hidden')).toBe(true)
   await ui.unmount()
 
+  // no terminal a pista é uma grade de células, sem a área de clique
   const terminal = await $.ui.mount({ plugin: 'clawd', surface: 'terminal', ...band(false) })
-  expect(await terminal.find({ type: 'Text', text: /▐▛███▜▌/ })).toBeDefined()
+  expect(await terminal.find({ type: 'Raster' })).toBeDefined()
+  expect(await terminal.find({ type: 'Client', key: 'tap' })).toBeUndefined()
   await terminal.unmount()
 })
 
@@ -2448,14 +2505,14 @@ test('barra: recarregar no meio do workflow continua a mesma barra (atom "runs")
   await ui.unmount()
 })
 
-test('barra: no terminal nada muda (só o logo), mesmo com um workflow rodando', { timeoutMs: 60000 }, async ($, on) => {
+test('barra: no terminal nada muda (só a pista, sem statusline), mesmo com um workflow rodando', { timeoutMs: 60000 }, async ($, on) => {
   const { clock } = barWorld(on, { proc: statuslineFor(true) })
   await start($)
   await launch($)
   await wfAgent($, 'mapear: faixa', 1)
   await clock.advance(2_000)
   const ui = await $.ui.mount({ plugin: 'clawd', surface: 'terminal', ...bandAt(140) })
-  expect(await ui.find({ type: 'Text', text: /▐▛███▜▌/ })).toBeDefined()
+  expect(await ui.find({ type: 'Raster' })).toBeDefined()
   expect(await ui.find({ type: 'Text', text: /🧩/ })).toBeUndefined()
   await ui.unmount()
 })

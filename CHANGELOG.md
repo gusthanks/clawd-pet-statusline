@@ -4,6 +4,12 @@ All notable changes to this project are recorded here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and versions
 follow [Semantic Versioning](https://semver.org/).
 
+## Unreleased
+
+### Added
+
+- **Clawd animated in the terminal.** The terminal `claude` used to show only the static block logo; now the band above the prompt draws the same lane as the app (every scene, the mini-Clawds, rain, fireworks), 7 rows tall, with colored half blocks. Inside: `raster.ts` reads the lane's SVG (the subset the drawings use, animations included) and paints it frame by frame into a `Raster`, repainted by `$.ui.blit` about 12 times a second with no redraw of the band; the pixel grid follows the drawing that shows most, so Clawd walking stays crisp. The lane math moved into `laneArt`, shared by both surfaces. The band's clocks (mood, helpers, limits, weather) now also run in the terminal. A band under 6 rows or 24 columns keeps the logo.
+
 ## 0.3.0 - 2026-10-09
 
 ### Added
