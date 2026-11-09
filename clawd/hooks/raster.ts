@@ -5,7 +5,8 @@
 // Só entende o pedaço de SVG que os desenhos deste projeto usam: <svg>, <g>, <use>, <rect>,
 // <path> (M L H V A Z), <polygon>, <ellipse> e <text>, com transform translate/scale, opacity,
 // visibility e as animações <animate>/<animateTransform> (discrete, linear e spline, que aqui
-// vira linear). Gradiente vira a cor mais forte dele; máscara é ignorada.
+// vira linear). Gradiente vira a cor mais forte dele; máscara é ignorada. data-term="skip"
+// marca o que só o desktop desenha; data-term="only", o que só o terminal desenha.
 //
 // A grade: 1 ponto = 1 célula do desenho (CELL px); 1 pixel do Clawd = 2 x 2 pontos; uma célula
 // de terminal = 1 pixel de largura e 2 de altura, com meio bloco (▀ ▄ █): o Clawd de 34 x 23
@@ -376,8 +377,12 @@ type Ctx = { m: M; vw: number; vh: number; opacity: number; visible: boolean; fi
 function draw(doc: Doc, cv: Canvas, node: Node, ctx: Ctx, t: number) {
   const tag = node.tag
   if (tag === 'defs' || tag === 'mask' || tag === 'linearGradient' || tag === 'radialGradient' || tag === 'stop') return
+  // data-term="skip": o desktop desenha, o terminal não. Para efeitos suaves (gradiente,
+  // máscara) que viram bloco chapado quando espremidos em células.
+  if (node.a['data-term'] === 'skip') return
   const vis = attrAt(node, 'visibility', t)
-  const visible = vis === 'hidden' ? false : vis === 'visible' ? true : ctx.visible
+  // data-term="only": escondido no desktop (visibility="hidden"), desenhado no terminal
+  const visible = node.a['data-term'] === 'only' ? true : vis === 'hidden' ? false : vis === 'visible' ? true : ctx.visible
   const op = attrAt(node, 'opacity', t)
   const opacity = ctx.opacity * (op === undefined ? 1 : Math.max(0, Math.min(1, Number(op))))
   if (opacity <= 0.02) return // invisível por inteiro, filhos também (opacity não é herdada para cima)

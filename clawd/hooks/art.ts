@@ -300,8 +300,15 @@ export const FX_KINDS = Object.keys(FX) as Fx[]
 export const ULTRA_AURA =
   `<defs><radialGradient id="clawd-aura"><stop offset="0" stop-color="${VIOLET}" stop-opacity="0.75"/>` +
   `<stop offset="0.55" stop-color="${ORANGE}" stop-opacity="0.28"/><stop offset="1" stop-color="${VIOLET}" stop-opacity="0"/></radialGradient></defs>` +
-  `<ellipse cx="20" cy="14" rx="19" ry="12" fill="url(#clawd-aura)" opacity="0.6">` +
+  `<ellipse data-term="skip" cx="20" cy="14" rx="19" ry="12" fill="url(#clawd-aura)" opacity="0.6">` +
   `<animate attributeName="opacity" values="0.45;0.95;0.45" dur="1.4s" ${LOOP}/></ellipse>` +
+  // No terminal a elipse some (vira bloco chapado) e as faíscas de 1 ponto também (meio pixel
+  // do Clawd): lá, duas faíscas de um pixel inteiro piscam em volta dele.
+  [[4, 2, VIOLET], [35, 12, '#ffb38a']]
+    .map(([x, y, c], i) =>
+      `<rect data-term="only" visibility="hidden" x="${x}" y="${y}" width="2" height="2" fill="${c}" opacity="0">` +
+      `<animate attributeName="opacity" values="0;1;0" dur="1.4s" begin="${i * 0.7}s" ${LOOP}/></rect>`)
+    .join('') +
   Array.from({ length: 8 }, (_, i) => {
     const x = 8 + ((i * 7) % 26)
     return (
@@ -400,7 +407,9 @@ export function ultraLayer(height: number): string {
     `<linearGradient id="clawd-ultra-glow" x1="0" x2="0" y1="0" y2="1">` +
     `<stop offset="0" stop-color="${VIOLET}" stop-opacity="0"/><stop offset="1" stop-color="${VIOLET}" stop-opacity="0.22"/></linearGradient>` +
     `</defs>` +
-    `<g mask="url(#clawd-ultra-mask)">` +
+    // o terminal ignora máscara: sem o esmaecimento isto vira uma faixa chapada de ponta a
+    // ponta, então lá só as faíscas subindo em volta do Clawd mostram o ultracode
+    `<g data-term="skip" mask="url(#clawd-ultra-mask)">` +
     `<rect x="0" y="0" width="100%" height="${height}" fill="url(#clawd-ultra-glow)">` +
     `<animate attributeName="opacity" values="0.6;1;0.6" dur="2s" ${LOOP}/></rect>` +
     `<rect x="0" y="${height - 2}" width="100%" height="2" fill="url(#clawd-ultra-bar)"/>` +
