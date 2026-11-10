@@ -6,6 +6,10 @@
 
 <p align="center"><sub>exemplo com dados inventados</sub></p>
 
+<p align="center"><img src="docs/demo.gif" width="800" alt="Demonstração animada numa janela de terminal escura: o Clawd mora na faixa acima do prompt do Claude Code, desenhado com meios blocos coloridos. Ele passeia, pega o laptop quando uma mensagem é enviada, ganha duas faíscas piscando do ultracode, trabalha ao lado de uma fileira de mini-Clawds fantasiados, segura o guarda-chuva na chuva e comemora com confete"></p>
+
+<p align="center"><sub>o mesmo no terminal (novidade da 0.4.0), gerado a partir dos quadros reais do terminal</sub></p>
+
 **Versão:** 0.4.0 · veja o [CHANGELOG](CHANGELOG.md) (em inglês).
 
 O **Clawd**, o caranguejinho laranja do Claude Code, morando animado na faixa logo acima da

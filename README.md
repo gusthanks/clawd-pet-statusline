@@ -6,6 +6,10 @@
 
 <p align="center"><sub>example with made-up data</sub></p>
 
+<p align="center"><img src="docs/demo.gif" width="800" alt="Animated demo in a dark terminal window: Clawd lives in the band above the Claude Code prompt, drawn with colored half blocks. He strolls around, grabs the laptop when a message is sent, gets two blinking ultracode sparks, works next to a row of costumed mini-Clawds, holds an umbrella in the rain and celebrates with confetti"></p>
+
+<p align="center"><sub>the same in the terminal (new in 0.4.0), rendered from the real terminal frames</sub></p>
+
 **Version:** 0.4.0 · see the [CHANGELOG](CHANGELOG.md).
 
 **Clawd**, the little orange Claude Code crab, living animated in the band right above the
