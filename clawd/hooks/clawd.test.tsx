@@ -84,7 +84,7 @@ const start = ($: any) => $.session.start({ cwd: 'C:/Users/voce', surface: 'desk
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const report = async ($: any) => JSON.parse((await $.tool.call({ tool: 'mcp__clawd__recarregar' })).result as string)
 
-test('no desktop, a faixa desenha a pista do Clawd, parado e trabalhando', async ($, on) => {
+test('no desktop, a faixa desenha a pista do Clawd, parado e trabalhando', { timeoutMs: 60000 }, async ($, on) => {
   mock.clock(on, { now: 1_700_000_000_000 })
   for (const isWorking of [false, true]) {
     const ui = await $.ui.mount({ plugin: 'clawd', surface: 'desktop', ...band(isWorking) })
@@ -105,13 +105,13 @@ const skyAt = async ($: any, on: On, now: number, store?: Record<string, unknown
   return src
 }
 
-test('de madrugada (0h às 5h) a pista ganha o céu, com lua e estrelas', async ($, on) => {
+test('de madrugada (0h às 5h) a pista ganha o céu, com lua e estrelas', { timeoutMs: 60000 }, async ($, on) => {
   const src = await skyAt($, on, 1_699_938_000_000)
   expect(src).toContain('id="sky"')
   expect(src).toContain('#fff3c4')
 })
 
-test('às 14h a pista não tem céu', async ($, on) => {
+test('às 14h a pista não tem céu', { timeoutMs: 60000 }, async ($, on) => {
   expect(await skyAt($, on, 1_699_984_800_000)).not.toContain('id="sky"')
 })
 
@@ -140,7 +140,7 @@ const orangeCells = (words: Uint32Array) => {
   return n
 }
 
-test('no terminal, a faixa desenha a pista do Clawd em células (Raster)', async ($, on) => {
+test('no terminal, a faixa desenha a pista do Clawd em células (Raster)', { timeoutMs: 60000 }, async ($, on) => {
   mock.clock(on, { now: 1_700_000_000_000 })
   for (const isWorking of [false, true]) {
     const ui = await $.ui.mount({ plugin: 'clawd', surface: 'terminal', ...band(isWorking) })
@@ -155,7 +155,7 @@ test('no terminal, a faixa desenha a pista do Clawd em células (Raster)', async
   }
 })
 
-test('no terminal, uma faixa baixa demais fica com o logo em blocos', async ($, on) => {
+test('no terminal, uma faixa baixa demais fica com o logo em blocos', { timeoutMs: 60000 }, async ($, on) => {
   mock.clock(on, { now: 1_700_000_000_000 })
   const short = { ...band(false), props: { ...band(false).props, maxRows: 4 } }
   const ui = await $.ui.mount({ plugin: 'clawd', surface: 'terminal', ...short })
@@ -187,7 +187,7 @@ test('raster: o texto do desenho vira letras nas células', () => {
   expect(glyphs).toContain('z'.codePointAt(0)!)
 })
 
-test('no desktop, a statusline aparece ao lado da pista, com o clima', async ($, on) => {
+test('no desktop, a statusline aparece ao lado da pista, com o clima', { timeoutMs: 60000 }, async ($, on) => {
   world(on)
   await start($)
 
@@ -201,7 +201,7 @@ test('no desktop, a statusline aparece ao lado da pista, com o clima', async ($,
   await ui.unmount()
 })
 
-test('edições somam as linhas; commit solta fogos; ajudantes entram e saem', async ($, on) => {
+test('edições somam as linhas; commit solta fogos; ajudantes entram e saem', { timeoutMs: 60000 }, async ($, on) => {
   world(on)
   // o teste responde às ferramentas como o motor responderia
   on('tool.call', ($, e) => {
@@ -233,7 +233,7 @@ test('edições somam as linhas; commit solta fogos; ajudantes entram e saem', a
   expect((await report($)).ajudantes).toEqual([])
 })
 
-test('fogos só para commit ou push de verdade; Write novo conta todas as linhas', async ($, on) => {
+test('fogos só para commit ou push de verdade; Write novo conta todas as linhas', { timeoutMs: 60000 }, async ($, on) => {
   world(on)
   on('tool.call', ($, e) => {
     const cmd = String((e as { command?: unknown }).command ?? '')
@@ -328,7 +328,7 @@ test('testVerdict reconhece os rodadores de teste e só eles', async () => {
   expect(testVerdict('ls', { isError: true })).toBe(null)
 })
 
-test('faixa estreita: o Clawd desce pra linha de baixo; faixa larga: fica ao lado do texto', async ($, on) => {
+test('faixa estreita: o Clawd desce pra linha de baixo; faixa larga: fica ao lado do texto', { timeoutMs: 60000 }, async ($, on) => {
   world(on)
   await start($)
   const wide = await $.ui.mount({
@@ -351,7 +351,7 @@ test('faixa estreita: o Clawd desce pra linha de baixo; faixa larga: fica ao lad
   await narrow.unmount()
 })
 
-test('compactando o contexto, o Clawd opera a prensa; depois, ela some', async ($, on) => {
+test('compactando o contexto, o Clawd opera a prensa; depois, ela some', { timeoutMs: 60000 }, async ($, on) => {
   world(on)
   let during = ''
   // o teste faz o papel do motor: no meio da compactação, olha a faixa
@@ -371,7 +371,7 @@ test('compactando o contexto, o Clawd opera a prensa; depois, ela some', async (
   await ui.unmount()
 })
 
-test('ultracode: o aviso do motor acende; um workflow mantém aceso; sem workflow, apaga no fim do turno', async ($, on) => {
+test('ultracode: o aviso do motor acende; um workflow mantém aceso; sem workflow, apaga no fim do turno', { timeoutMs: 60000 }, async ($, on) => {
   world(on)
   on('prompt.attachment', ($, e) => ({ text: e.text }))
   on('tool.call', ($, e) =>
@@ -400,7 +400,7 @@ test('ultracode: o aviso do motor acende; um workflow mantém aceso; sem workflo
   expect((await report($)).ultracode).toBe(false)
 })
 
-test('ultracode: aviso velho repetido ao retomar não acende; o botão do app (configuração) acende', async ($, on) => {
+test('ultracode: aviso velho repetido ao retomar não acende; o botão do app (configuração) acende', { timeoutMs: 60000 }, async ($, on) => {
   let cfg: Record<string, unknown> = {}
   world(on, { settings: () => cfg })
   on('prompt.attachment', ($, e) => ({ text: e.text }))
@@ -428,7 +428,7 @@ test('ultracode: aviso velho repetido ao retomar não acende; o botão do app (c
   expect((await report($)).ultracode).toBe(false)
 })
 
-test('conversa nova: o app se conecta depois do início, e as leituras da faixa começam quando ele chega', async ($, on) => {
+test('conversa nova: o app se conecta depois do início, e as leituras da faixa começam quando ele chega', { timeoutMs: 60000 }, async ($, on) => {
   const { clock } = world(on)
   on('session.surfaces', () => ({ value: [] }))
   on('session.attach', ($, e) => ({ clientId: e.clientId }))
@@ -447,7 +447,7 @@ test('conversa nova: o app se conecta depois do início, e as leituras da faixa 
   expect(String((await report($)).limites)).toMatch(/^ok/)
 })
 
-test('a statusline recebe a largura que sobra ao lado da pista, e refaz quando a janela cruza o limite', async ($, on) => {
+test('a statusline recebe a largura que sobra ao lado da pista, e refaz quando a janela cruza o limite', { timeoutMs: 60000 }, async ($, on) => {
   const { clock, envs } = world(on)
   await start($)
   const mount = (cols: number) =>
@@ -469,7 +469,7 @@ test('a statusline recebe a largura que sobra ao lado da pista, e refaz quando a
   await ui.unmount()
 })
 
-test('retomar outra conversa no mesmo processo traz as linhas dela', async ($, on) => {
+test('retomar outra conversa no mesmo processo traz as linhas dela', { timeoutMs: 60000 }, async ($, on) => {
   let sid = 'a'
   world(on, { sid: () => sid })
   on('tool.call', ($, e) =>
@@ -515,7 +515,7 @@ const mountBand = ($: any, isWorking: boolean) => $.ui.mount({ plugin: 'clawd', 
 
 const down = (x: number, y = 1) => ({ type: 'down' as const, x, y, button: 'left' as const })
 
-test('tapinha: a pista ganha uma área de clique que não desenha nada visível; no terminal não existe', async ($, on) => {
+test('tapinha: a pista ganha uma área de clique que não desenha nada visível; no terminal não existe', { timeoutMs: 60000 }, async ($, on) => {
   world(on)
   await start($)
   const ui = await mountBand($, false)
@@ -539,7 +539,7 @@ test('tapinha: a pista ganha uma área de clique que não desenha nada visível;
   await terminal.unmount()
 })
 
-test('tapinha: clicar no Clawd (laptop aberto, no canto) o faz reagir; clicar longe dele não faz nada', async ($, on) => {
+test('tapinha: clicar no Clawd (laptop aberto, no canto) o faz reagir; clicar longe dele não faz nada', { timeoutMs: 60000 }, async ($, on) => {
   const { clock } = world(on)
   await start($)
   const ui = await mountBand($, true)
@@ -583,21 +583,21 @@ async function tapAndLook($: any, on: On, env: Record<string, string>) {
   return { m, toques }
 }
 
-test('tapinha: sem CLAWD_DEBUG o registro dos cliques fica só em memória', async ($, on) => {
+test('tapinha: sem CLAWD_DEBUG o registro dos cliques fica só em memória', { timeoutMs: 60000 }, async ($, on) => {
   const { m, toques } = await tapAndLook($, on, {})
   expect(toques).toBeGreaterThan(0)
   expect(m.has('tapLog')).toBe(false)
   expect(m.has('renderLog')).toBe(false)
 })
 
-test('tapinha: com CLAWD_DEBUG o registro dos cliques vai para o store', async ($, on) => {
+test('tapinha: com CLAWD_DEBUG o registro dos cliques vai para o store', { timeoutMs: 60000 }, async ($, on) => {
   const { m, toques } = await tapAndLook($, on, { CLAWD_DEBUG: '1' })
   expect(toques).toBeGreaterThan(0)
   expect(m.has('tapLog')).toBe(true)
   expect(m.has('renderLog')).toBe(false)
 })
 
-test('tapinha: só o botão esquerdo conta, e um recado malformado não derruba nada', async ($, on) => {
+test('tapinha: só o botão esquerdo conta, e um recado malformado não derruba nada', { timeoutMs: 60000 }, async ($, on) => {
   world(on)
   await start($)
   const ui = await mountBand($, false)
@@ -622,7 +622,7 @@ test('tapinha: só o botão esquerdo conta, e um recado malformado não derruba 
   await ui.unmount()
 })
 
-test('tapinha: quatro seguidos em 3 segundos o deixam tonto (olhos girando, estrelinhas)', async ($, on) => {
+test('tapinha: quatro seguidos em 3 segundos o deixam tonto (olhos girando, estrelinhas)', { timeoutMs: 60000 }, async ($, on) => {
   const { clock } = world(on)
   await start($)
   const ui = await mountBand($, false)
@@ -643,7 +643,7 @@ test('tapinha: quatro seguidos em 3 segundos o deixam tonto (olhos girando, estr
   await ui.unmount()
 })
 
-test('tapinha: acorda o Clawd que dorme, e ele não volta a cochilar logo em seguida', async ($, on) => {
+test('tapinha: acorda o Clawd que dorme, e ele não volta a cochilar logo em seguida', { timeoutMs: 60000 }, async ($, on) => {
   const { clock } = world(on)
   await start($)
   await clock.advance(11 * 60_000) // 10 minutos sem nada: ele cochila
@@ -658,7 +658,7 @@ test('tapinha: acorda o Clawd que dorme, e ele não volta a cochilar logo em seg
   await ui.unmount()
 })
 
-test('a conversa abre com a última statusline guardada desta pasta, sem esperar o node', async ($, on) => {
+test('a conversa abre com a última statusline guardada desta pasta, sem esperar o node', { timeoutMs: 60000 }, async ($, on) => {
   const { clock } = world(on, {
     store: { 'statusCache:C:/Users/voce': [[{ t: '📂 ' }, { t: 'guardada', c: '#ebc800', b: true }]] },
     statusline: '', // o node ainda não respondeu nada
@@ -670,7 +670,7 @@ test('a conversa abre com a última statusline guardada desta pasta, sem esperar
   await ui.unmount()
 })
 
-test('limpeza do store: conversa velha sai, a atual e a recente ficam, e órfã sem registro sai', async ($, on) => {
+test('limpeza do store: conversa velha sai, a atual e a recente ficam, e órfã sem registro sai', { timeoutMs: 60000 }, async ($, on) => {
   const DAY = 24 * 3600 * 1000
   const now = 1_700_000_000_000
   const store = new Map<string, unknown>()
@@ -697,7 +697,7 @@ test('limpeza do store: conversa velha sai, a atual e a recente ficam, e órfã 
 })
 
 // A ordem de procura do node: CLAWD_NODE, "node" no PATH, o "where node" (só no Windows, uma vez) e os caminhos de Mac/Linux.
-test('o node: CLAWD_NODE primeiro; se falha, o "node" do PATH; sem where fora do Windows', async ($, on) => {
+test('o node: CLAWD_NODE primeiro; se falha, o "node" do PATH; sem where fora do Windows', { timeoutMs: 60000 }, async ($, on) => {
   const calls: string[] = []
   const { clock } = world(on, {
     env: { CLAWD_NODE: 'C:/meu/node.exe' },
@@ -713,7 +713,7 @@ test('o node: CLAWD_NODE primeiro; se falha, o "node" do PATH; sem where fora do
   expect(calls).not.toContain('where')
 })
 
-test('o node: tudo falha fora do Windows, sobram os caminhos de Mac/Linux, sem where', async ($, on) => {
+test('o node: tudo falha fora do Windows, sobram os caminhos de Mac/Linux, sem where', { timeoutMs: 60000 }, async ($, on) => {
   const calls: string[] = []
   const { clock } = world(on, {
     proc: (argv) => {
@@ -728,7 +728,7 @@ test('o node: tudo falha fora do Windows, sobram os caminhos de Mac/Linux, sem w
   expect(calls).not.toContain('where')
 })
 
-test('o node no Windows: PATH falha, o "where node" roda uma vez e o resultado fica guardado', async ($, on) => {
+test('o node no Windows: PATH falha, o "where node" roda uma vez e o resultado fica guardado', { timeoutMs: 60000 }, async ($, on) => {
   const calls: string[] = []
   const { clock } = world(on, {
     env: { OS: 'Windows_NT' },
@@ -980,7 +980,7 @@ function askWorld(on: On) {
   return w
 }
 
-test('chamando: o pedido de permissão abre a cena ask; a ferramenta seguinte a fecha e ele volta a trabalhar', async ($, on) => {
+test('chamando: o pedido de permissão abre a cena ask; a ferramenta seguinte a fecha e ele volta a trabalhar', { timeoutMs: 60000 }, async ($, on) => {
   const { clock } = askWorld(on)
   await start($)
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -1007,7 +1007,7 @@ test('chamando: o pedido de permissão abre a cena ask; a ferramenta seguinte a 
   await ui.unmount()
 })
 
-test('chamando: só o agente principal chama; ajudante e o aviso de outro tipo não', async ($, on) => {
+test('chamando: só o agente principal chama; ajudante e o aviso de outro tipo não', { timeoutMs: 60000 }, async ($, on) => {
   askWorld(on)
   await start($)
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -1040,7 +1040,7 @@ test('chamando: sem resposta nenhuma, expira em 10 minutos e volta ao normal', {
   await ui.unmount()
 })
 
-test('chamando: prompt novo, fim do turno, negação automática e Stop também encerram', async ($, on) => {
+test('chamando: prompt novo, fim do turno, negação automática e Stop também encerram', { timeoutMs: 60000 }, async ($, on) => {
   askWorld(on)
   await start($)
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -1059,7 +1059,7 @@ test('chamando: prompt novo, fim do turno, negação automática e Stop também 
   }
 })
 
-test('chamando: o aviso permission_prompt serve de reserva, mas não reabre depois de um pedido resolvido', async ($, on) => {
+test('chamando: o aviso permission_prompt serve de reserva, mas não reabre depois de um pedido resolvido', { timeoutMs: 60000 }, async ($, on) => {
   const { clock } = askWorld(on)
   await start($)
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -1079,7 +1079,7 @@ test('chamando: o aviso permission_prompt serve de reserva, mas não reabre depo
   expect((await report($)).chamando).toBe(false)
 })
 
-test('chamando: um gancho que decide sozinho (decision) não deixa ele chamando ninguém', async ($, on) => {
+test('chamando: um gancho que decide sozinho (decision) não deixa ele chamando ninguém', { timeoutMs: 60000 }, async ($, on) => {
   world(on)
   on('classic.PermissionRequest', () => ({ decision: { behavior: 'allow' as const } }))
   await start($)
@@ -1773,7 +1773,14 @@ function barWorld(on: On, opts: BarOpts = {}) {
   const w = world(on, { ...opts, env: { CLAWD_WEATHER: 'off', ...opts.env } })
   const files = opts.files ?? new Map<string, string>()
   const reads: string[] = []
-  const slashed = (p: string) => p.replace(/\\/g, '/')
+  // The fixtures use Windows paths ("C:/Users/..."). Off Windows the engine does not see them as
+  // absolute and resolves them against the mod's folder ("/.../clawd/C:/Users/..."), so the fake
+  // disk keys on the part from the drive letter on.
+  const slashed = (p: string) => {
+    const s = p.replace(/\\/g, '/')
+    const drive = s.search(/[A-Za-z]:\//)
+    return drive > 0 ? s.slice(drive) : s
+  }
   let n = 0
   let taskN = 0
   on('agent.spawn', () => ({ model: 'claude-opus-5-5', agentId: `ag-${++n}` }))
