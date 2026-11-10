@@ -1,0 +1,58 @@
+name: Idea or bug
+description: An animation idea, a bug, or a report of how Clawd runs on your system
+labels: []
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for writing! English is preferred, but reports in Portuguese are welcome too.
+        (Relatos em português também são bem-vindos.)
+  - type: dropdown
+    id: kind
+    attributes:
+      label: What is this about?
+      options:
+        - An idea (new animation, costume, statusline item...)
+        - A bug
+        - A compatibility report (it works / doesn't work on my system)
+    validations:
+      required: true
+  - type: textarea
+    id: what
+    attributes:
+      label: What do you want to tell us?
+      description: The idea, the bug, or what happened on your system.
+    validations:
+      required: true
+  - type: textarea
+    id: how
+    attributes:
+      label: How does it happen?
+      description: Short steps, or what you were doing in Claude Code when it happened. A screenshot helps.
+  - type: dropdown
+    id: surface
+    attributes:
+      label: Where do you run Claude Code?
+      options:
+        - Desktop app (Code tab)
+        - Terminal (`claude`)
+        - Both
+  - type: dropdown
+    id: os
+    attributes:
+      label: Operating system
+      options:
+        - Windows
+        - macOS
+        - Linux
+  - type: input
+    id: app-version
+    attributes:
+      label: Claude Code version
+      placeholder: e.g. 2.1.309
+  - type: input
+    id: mod-version
+    attributes:
+      label: Mod version
+      description: The `version` field in `clawd/.claude-plugin/plugin.json`.
+      placeholder: e.g. 0.4.0

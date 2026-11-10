@@ -1,0 +1,66 @@
+name: Broke after an update
+description: Clawd or the statusline stopped showing up or working after updating Claude Code or the mod
+title: "Broke after update: "
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Mods hook into Claude Code internals, so an app update can break them. These details help find out what changed.
+        Reports in Portuguese are welcome too. (Relatos em português também são bem-vindos.)
+  - type: checkboxes
+    id: updated
+    attributes:
+      label: What did you update?
+      options:
+        - label: Claude Code
+        - label: The mod (`git pull` + `node install.mjs`)
+  - type: dropdown
+    id: surface
+    attributes:
+      label: Where do you run Claude Code?
+      options:
+        - Desktop app (Code tab)
+        - Terminal (`claude`)
+        - Both
+    validations:
+      required: true
+  - type: dropdown
+    id: os
+    attributes:
+      label: Operating system
+      options:
+        - Windows
+        - macOS
+        - Linux
+    validations:
+      required: true
+  - type: input
+    id: app-version
+    attributes:
+      label: Claude Code version
+      description: "`claude --version`, or Settings > About in the app."
+      placeholder: e.g. 2.1.309
+    validations:
+      required: true
+  - type: input
+    id: mod-version
+    attributes:
+      label: Mod version
+      description: The `version` field in `clawd/.claude-plugin/plugin.json`.
+      placeholder: e.g. 0.4.0
+    validations:
+      required: true
+  - type: textarea
+    id: band
+    attributes:
+      label: What shows up in the band?
+      description: Empty band, only the block logo, only the statusline, an error... A screenshot helps.
+    validations:
+      required: true
+  - type: textarea
+    id: validate
+    attributes:
+      label: Validator output
+      description: Run `claude plugin validate ./clawd` in the repository folder and paste the result.
+      render: text
