@@ -7,7 +7,7 @@ import { crewOf, helpersLayer, mini, PARTY_MS, teamOf } from './team'
 import { COSTUME_KINDS, costumeFor, settleCostume } from './costumes'
 import type { CostumeHints } from './costumes'
 import { BOX_H, BOX_W, CELL, fitLane, LANE_W, laneSvg, PAD, phased, SVG_SAFE } from './lane'
-import { buildScene, stand, WALK_PX } from './scenes'
+import { ALT, ALT_PT, buildScene, isPortuguese, stand, WALK_PX } from './scenes'
 import { frameAt, parseSvg as readSvg } from './raster'
 import type { Flags, SceneKind, Spec, Step } from './scenes'
 import type { Costume, Progress, StatusSpan, TeamMate } from '../types'
@@ -643,18 +643,36 @@ test('tapinha: quatro seguidos em 3 segundos o deixam tonto (olhos girando, estr
   await ui.unmount()
 })
 
+test('alt text: English by default, Portuguese when the locale starts with pt (LC_ALL > LC_MESSAGES > LANG)', () => {
+  expect(isPortuguese()).toBe(false)
+  expect(isPortuguese(undefined, undefined, 'pt_BR.UTF-8')).toBe(true)
+  expect(isPortuguese(undefined, 'pt_PT', 'en_US.UTF-8')).toBe(true)
+  expect(isPortuguese('en_US.UTF-8', undefined, 'pt_BR.UTF-8')).toBe(false)
+  expect(isPortuguese('', '', 'C')).toBe(false)
+  expect(Object.keys(ALT_PT).sort()).toEqual(Object.keys(ALT).sort())
+})
+
+test('alt text: with LANG=pt_BR the lane is described in Portuguese', { timeoutMs: 60000 }, async ($, on) => {
+  const { clock } = world(on, { env: { LANG: 'pt_BR.UTF-8' } })
+  await start($)
+  await clock.advance(11 * 60_000)
+  const ui = await mountBand($, false)
+  expect((await ui.find({ type: 'Svg' }))?.props.alt).toBe('Clawd dormindo')
+  await ui.unmount()
+})
+
 test('tapinha: acorda o Clawd que dorme, e ele não volta a cochilar logo em seguida', { timeoutMs: 60000 }, async ($, on) => {
   const { clock } = world(on)
   await start($)
   await clock.advance(11 * 60_000) // 10 minutos sem nada: ele cochila
   const ui = await mountBand($, false)
-  expect((await ui.find({ type: 'Svg' }))?.props.alt).toBe('Clawd dormindo')
+  expect((await ui.find({ type: 'Svg' }))?.props.alt).toBe('Clawd sleeping')
 
   await ui.pointer(down(2))
-  expect((await ui.find({ type: 'Svg' }))?.props.alt).toBe('Clawd passeando')
+  expect((await ui.find({ type: 'Svg' }))?.props.alt).toBe('Clawd strolling')
   expect((await report($)).cena).toBe('idle')
   await clock.advance(3_000)
-  expect((await ui.find({ type: 'Svg' }))?.props.alt).toBe('Clawd passeando')
+  expect((await ui.find({ type: 'Svg' }))?.props.alt).toBe('Clawd strolling')
   await ui.unmount()
 })
 
@@ -988,22 +1006,22 @@ test('chamando: o pedido de permissão abre a cena ask; a ferramenta seguinte a 
   await t.turn.start({ text: 'oi', turnId: 't1' })
   const ui = await mountBand($, true)
   await clock.advance(15_000) // ele já digita no laptop
-  expect(await alt(ui)).toContain('digitando')
+  expect(await alt(ui)).toContain('typing')
 
   await t.classic.PermissionRequest(ASK)
   expect((await report($)).chamando).toBe(true)
-  expect(await alt(ui)).toContain('chamando')
+  expect(await alt(ui)).toContain('calling')
   expect((await report($)).cena).toBe('ask')
   // laptop guardado, de frente, braço acenando e o balão "?"
   const source = String((await ui.find({ type: 'Svg' }))?.props.source)
   expect(source).toContain('#e5484d')
   await clock.advance(2_000)
-  expect(await alt(ui)).toContain('chamando')
+  expect(await alt(ui)).toContain('calling')
 
   // você disse sim: a ferramenta roda e acaba
   await t.tool.call({ tool: 'Bash', command: 'ls' })
   expect((await report($)).chamando).toBe(false)
-  expect(await alt(ui)).toContain('digitando')
+  expect(await alt(ui)).toContain('typing')
   await ui.unmount()
 })
 
@@ -1036,7 +1054,7 @@ test('chamando: sem resposta nenhuma, expira em 10 minutos e volta ao normal', {
   await clock.advance(61_000)
   expect((await report($)).chamando).toBe(false)
   const ui = await mountBand($, false)
-  expect(await alt(ui)).not.toContain('chamando')
+  expect(await alt(ui)).not.toContain('calling')
   await ui.unmount()
 })
 
@@ -1096,7 +1114,7 @@ test('chamando: o tapinha mostra a reação e ele volta a chamar', { timeoutMs: 
   await ui.resize({ columns: 60, rows: 3 })
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   await ($ as any).classic.PermissionRequest(ASK)
-  expect(await alt(ui)).toContain('chamando') // a faixa se redesenhou
+  expect(await alt(ui)).toContain('calling') // a faixa se redesenhou
   expect((await report($)).cena).toBe('ask')
 
   await ui.pointer(down(56))
@@ -1109,7 +1127,7 @@ test('chamando: o tapinha mostra a reação e ele volta a chamar', { timeoutMs: 
   r = await report($)
   expect(r.cena).toBe('ask')
   expect(r.chamando).toBe(true)
-  expect(await alt(ui)).toContain('chamando')
+  expect(await alt(ui)).toContain('calling')
   await ui.unmount()
 })
 

@@ -14,7 +14,7 @@ export const PASS_S = 3 // os testes passaram: a garra sobe com o "✓"
 export const SLEEP_S = 10 * 60
 export const SLEEP_NIGHT_S = 3 * 60 // de madrugada ele cochila mais cedo
 export const FIREWORKS_S = 7
-// Chamando o Gus: se a permissão nunca se resolver (nenhum sinal chega), ele desiste depois disto.
+// Chamando você: se a permissão nunca se resolver (nenhum sinal chega), ele desiste depois disto.
 export const ASK_S = 10 * 60
 
 // A pausa: depois de 1 hora de trabalho seguido (sem 10 minutos de folga), ele
@@ -216,7 +216,21 @@ export function posAt(spec: Spec, t: number): number {
   return end ? end.p1 : 1
 }
 
+// O texto do leitor de tela (o alt da pista): em inglês, ou em português quando o idioma do
+// sistema (LC_ALL, LC_MESSAGES ou LANG) começa com "pt".
 export const ALT: Record<SceneKind, string> = {
+  idle: 'Clawd strolling',
+  work: 'Clawd typing on the laptop',
+  party: 'Clawd celebrating',
+  oops: 'Clawd startled by an error',
+  pass: 'Clawd raising a claw: the tests passed',
+  sleep: 'Clawd sleeping',
+  pause: 'Clawd suggesting a break',
+  compact: 'Clawd compacting the context',
+  ask: 'Clawd calling you: Claude is waiting for your permission',
+}
+
+export const ALT_PT: Record<SceneKind, string> = {
   idle: 'Clawd passeando',
   work: 'Clawd digitando no laptop',
   party: 'Clawd comemorando',
@@ -226,6 +240,11 @@ export const ALT: Record<SceneKind, string> = {
   pause: 'Clawd sugerindo uma pausa',
   compact: 'Clawd compactando o contexto',
   ask: 'Clawd chamando você: o Claude espera sua permissão',
+}
+
+// Português quando a primeira variável de idioma definida (na ordem do POSIX) começa com "pt".
+export function isPortuguese(lcAll?: string, lcMessages?: string, lang?: string): boolean {
+  return /^pt/i.test(lcAll || lcMessages || lang || '')
 }
 
 // O acessório que ele usa digitando, pela ferramenta que o agente principal está usando.

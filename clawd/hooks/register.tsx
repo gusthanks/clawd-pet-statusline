@@ -11,7 +11,7 @@ import type { Placed, Run, TaskItem } from './progress'
 import { BOX_W, CELL, CH_PX, fitLane, LANE_GAP_CH, LANE_MIN_CH, LANE_MIN_H, LANE_W, LINE_PX, PAD, PARK_PX, wideFits } from './lane'
 import { LIMITS_BACKOFF_MS, LIMITS_EVERY_MS, LIMITS_FRESH_MS, USAGE_URL, windowOf } from './limits'
 import type { Window } from './limits'
-import { activityFor, ALT, ASK_S, BREAK_GAP_S, buildScene, FIREWORKS_S, hatFor, parseBirthday, OOPS_S, PARTY_S, PASS_S, PAUSE_EVERY_S, PAUSE_S, posAt, SLEEP_NIGHT_S, SLEEP_S, STREAK_S } from './scenes'
+import { activityFor, ALT, ALT_PT, ASK_S, BREAK_GAP_S, buildScene, FIREWORKS_S, hatFor, isPortuguese, parseBirthday, OOPS_S, PARTY_S, PASS_S, PAUSE_EVERY_S, PAUSE_S, posAt, SLEEP_NIGHT_S, SLEEP_S, STREAK_S } from './scenes'
 import type { Birthday, Flags, SceneKind, Spec } from './scenes'
 import { frameAt, parseSvg } from './raster'
 import type { Doc } from './raster'
@@ -372,6 +372,8 @@ const offsetAt = (now: number) => utcOffsetS ?? -new Date(now).getTimezoneOffset
 const hourHere = (now: number) => new Date(now + offsetAt(now) * 1000).getUTCHours()
 // O aniversário (CLAWD_BIRTHDAY="DD-MM"), lido no session.start; e o chapéu do dia pela data local.
 let birthday: Birthday | null = null
+// o texto do leitor de tela, no idioma do sistema (decidido no session.start)
+let altText: Record<SceneKind, string> = ALT
 const hatToday = (now: number) => {
   const d = new Date(now + offsetAt(now) * 1000)
   return hatFor(d.getUTCFullYear(), d.getUTCMonth() + 1, d.getUTCDate(), birthday)
@@ -1407,6 +1409,10 @@ export const register: Register = on => {
     weatherOff = isOff(await $.env.get('CLAWD_WEATHER').catch(() => undefined))
     limitsOff = isOff(await $.env.get('CLAWD_LIMITS').catch(() => undefined))
     birthday = parseBirthday(await $.env.get('CLAWD_BIRTHDAY').catch(() => undefined))
+    const lcAll = await $.env.get('LC_ALL').catch(() => undefined)
+    const lcMessages = await $.env.get('LC_MESSAGES').catch(() => undefined)
+    const lang = await $.env.get('LANG').catch(() => undefined)
+    altText = isPortuguese(lcAll, lcMessages, lang) ? ALT_PT : ALT
     await $.store.delete('renderLog').catch(() => undefined) // sobra de uma depuração antiga
     promptText = ''
     standingSeen = null
@@ -2000,7 +2006,7 @@ export const register: Register = on => {
       <Box flexDirection={sideBySide ? 'row' : 'column'} alignItems={sideBySide ? 'flex-end' : 'stretch'}>
         {text}
         <Box flexDirection="column" flexGrow={1} minWidth={sideBySide ? LANE_MIN_CH : 0} marginLeft={sideBySide && rows.length ? LANE_GAP_CH : 0}>
-          <Svg source={laneArtSvg} alt={ALT[kind]} width={LANE_W} height={height} />
+          <Svg source={laneArtSvg} alt={altText[kind]} width={LANE_W} height={height} />
           {/* a área de clique: invisível, por cima da pista; presa dentro dela (overflow), pra nunca vazar
               sobre a caixa de mensagem */}
           <Box position="absolute" top={0} left={0} right={0} bottom={0} overflow="hidden">
