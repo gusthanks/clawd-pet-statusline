@@ -1,6 +1,6 @@
 // A baia dos ajudantes: um mini-Clawd por ajudante rodando, cada um com a fantasia da tarefa
-// dele (fantasias.ts), digitando num laptop no canto direito da pista. Conta pura, sem `$`.
-// Importa art.ts e fantasias.ts; lane.ts importa daqui (sem ciclo).
+// dele (costumes.ts), digitando num laptop no canto direito da pista. Conta pura, sem `$`.
+// Importa art.ts e costumes.ts; lane.ts importa daqui (sem ciclo).
 //
 // O mini (1 célula = 1 pixel dele), em células da baia, com L = a coluna esquerda dele:
 //   cabeça   linhas 15-16, olhos em (L+3,16) e (L+8,16)
@@ -8,7 +8,7 @@
 //   barriga e pernas linhas 19-22, atrás do laptop
 // A fantasia põe o chapéu por cima da cabeça e o objeto na garra direita, que sobe ao lado dela.
 import { cells, EYE, LOOP, MAX_MINIS, MINI_STEP, ORANGE, phaseOf, rect, umbrella } from './art'
-import { COSTUMES, isCostume } from './fantasias'
+import { COSTUMES, isCostume } from './costumes'
 import type { Crew, TeamMate } from '../types'
 
 const round = (v: number) => Math.round(v * 100000) / 100000

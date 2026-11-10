@@ -1,6 +1,6 @@
 import { BODIES, BODY_KINDS, EYE_KINDS, EYES, fireworksLayer, FRONT_PROP_KINDS, FRONT_PROPS, FX, FX_KINDS, helpersZone, legs, LOOP, phaseOf, PRESS, rainLayer, skyLayer, TYPING_PROP_KINDS, TYPING_PROPS, ULTRA_AURA, ultraLayer } from './art'
 import type { Body, Eyes } from './art'
-import { helpersLayer } from './equipe'
+import { helpersLayer } from './team'
 import type { TeamMate } from '../types'
 import { LAPTOP_COLORS, LAPTOP_FPS, LAPTOP_FRAMES } from './laptop'
 import { posAt, span, STEP_S } from './scenes'

@@ -2,12 +2,12 @@ import { atom, read, update } from 'claude-code'
 import type { EngineInterface, HttpInit, HttpResponse, Register } from 'claude-code'
 import type { Activity, ClawdMood, Costume, Crew, Lines, Progress, SavedRun, SavedScene, StatusSpan, TeamMate, Weather } from '../types'
 import { fitMinis, helpersZone, ORANGE } from './art'
-import { crewOf, PARTY_MS, teamOf } from './equipe'
-import { settleCostume } from './fantasias'
+import { crewOf, PARTY_MS, teamOf } from './team'
+import { settleCostume } from './costumes'
 import { changedLines, gitHappened, isLines, testVerdict } from './git'
 import type { Ran } from './git'
-import { advance, batchFill, END_CHECK_MS, endOf, endStatus, FAIL_MS, finalFileOf, finishRun, loadRuns, META_READS, META_TRIES, newRun, OK_MS, OVER_WAIT_MS, parsePhases, phaseOfLabel, phaseOfTitle, placeBar, progressOf, QUIET_MS, relaunch, runProgress, saveRun, setPhases, settled, TASKS_DONE_MS, tasksProgress, verdictOf } from './progresso'
-import type { Placed, Run, TaskItem } from './progresso'
+import { advance, batchFill, END_CHECK_MS, endOf, endStatus, FAIL_MS, finalFileOf, finishRun, loadRuns, META_READS, META_TRIES, newRun, OK_MS, OVER_WAIT_MS, parsePhases, phaseOfLabel, phaseOfTitle, placeBar, progressOf, QUIET_MS, relaunch, runProgress, saveRun, setPhases, settled, TASKS_DONE_MS, tasksProgress, verdictOf } from './progress'
+import type { Placed, Run, TaskItem } from './progress'
 import { BOX_W, CELL, CH_PX, fitLane, LANE_GAP_CH, LANE_MIN_CH, LANE_MIN_H, LANE_W, LINE_PX, PAD, PARK_PX, wideFits } from './lane'
 import { LIMITS_BACKOFF_MS, LIMITS_EVERY_MS, LIMITS_FRESH_MS, USAGE_URL, windowOf } from './limits'
 import type { Window } from './limits'
@@ -16,8 +16,8 @@ import type { Birthday, Flags, SceneKind, Spec } from './scenes'
 import { frameAt, parseSvg } from './raster'
 import type { Doc } from './raster'
 import { parseAnsi, prettyModel } from './statusline'
-import { clawdSpan, parseTap, TAP_COMBO_MS, TAP_COMBO_N, TAP_KEY, TAP_LOG_MAX, tapScene } from './tapinha'
-import type { Tap } from './tapinha'
+import { clawdSpan, parseTap, TAP_COMBO_MS, TAP_COMBO_N, TAP_KEY, TAP_LOG_MAX, tapScene } from './tap-reaction'
+import type { Tap } from './tap-reaction'
 import { kmBetween, parseWindowsPlace, PLACE_EVERY_MS, PLACE_MOVED_KM, PLACE_SERVICES, WEATHER_EVERY_MS, WEATHER_STALE_MS, weatherEmoji, weatherUrl, isRaining, WINDOWS_PLACE_ARGV, WINDOWS_PLACE_TIMEOUT_MS } from './weather'
 import type { Place } from './weather'
 
@@ -35,10 +35,10 @@ import type { Place } from './weather'
 //   limits.ts      o endereço e o ritmo da consulta dos limites; a leitura da resposta
 //   weather.ts     os endereços do clima e do lugar; o código do tempo em emoji
 //   git.ts         as linhas mexidas (Edit/Write) e a detecção de commit e push
-//   tapinha.ts     o recado do clique, onde ele acerta o Clawd e a cena da reação
-//   fantasias.ts   as fantasias dos ajudantes e quem veste qual, pela tarefa
-//   equipe.ts      a baia dos ajudantes: o mini com a fantasia, a festa de quem terminou
-//   progresso.ts   a barra de progresso (texto na coluna da statusline): o que mostra e onde cabe
+//   tap-reaction.ts o recado do clique, onde ele acerta o Clawd e a cena da reação
+//   costumes.ts    as fantasias dos ajudantes e quem veste qual, pela tarefa
+//   team.ts        a baia dos ajudantes: o mini com a fantasia, a festa de quem terminou
+//   progress.ts    a barra de progresso (texto na coluna da statusline): o que mostra e onde cabe
 //   raster.ts      a pista no terminal: o SVG do desktop lido e desenhado em células, quadro a quadro
 //   art.ts, laptop.ts  os desenhos
 
@@ -597,7 +597,7 @@ function dress(m: Mate): { costume: Costume; tone: number } {
 
 // ---------- a barra de progresso ----------
 
-// Uma linha de texto na coluna da statusline (progresso.ts), nunca dentro da pista. As fontes, em
+// Uma linha de texto na coluna da statusline (progress.ts), nunca dentro da pista. As fontes, em
 // ordem: um workflow (🧩), a lista de tarefas (📋) e o lote de ajudantes da ferramenta Agent (🤖).
 // Tudo em memória: os ganchos só anotam (o agent.spawn nem usa o $), e o tique lê os arquivos,
 // decide a fonte e grava o atom 'progress' só quando ele muda, no máximo ~1x/s.

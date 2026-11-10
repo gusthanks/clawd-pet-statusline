@@ -20,7 +20,7 @@ export const cells = (pts: [number, number][], fill: string) => pts.map(([x, y])
 const round = (v: number) => Math.round(v * 1000) / 1000
 
 // A fase do relógio que as animações miúdas recebem (phased, em lane.ts): o relógio em segundos,
-// numa volta de uma hora. Mora aqui para a festa dos ajudantes (equipe.ts) fazer a MESMA conta
+// numa volta de uma hora. Mora aqui para a festa dos ajudantes (team.ts) fazer a MESMA conta
 // sem importar lane.ts.
 export const phaseOf = (wall: number) => wall % 3600
 
@@ -421,7 +421,7 @@ export function ultraLayer(height: number): string {
 
 // Cada mini-Clawd tem 12 células de largura e fica a 14 do vizinho. A baia inteira
 // fica à direita do Clawd principal, que nunca entra nela (ver helpersZone).
-// O desenho dos minis (e das fantasias deles) mora em equipe.ts e fantasias.ts.
+// O desenho dos minis (e das fantasias deles) mora em team.ts e costumes.ts.
 export const MINI_STEP = 14
 export const MAX_MINIS = 6
 

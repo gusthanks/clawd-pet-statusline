@@ -1,9 +1,9 @@
 // As fantasias dos ajudantes (mini-Clawds da baia) e quem veste qual (costumeFor). Conta pura,
-// sem `$`. Importa só art.ts; equipe.ts desenha o mini com a fantasia por cima.
+// sem `$`. Importa só art.ts; team.ts desenha o mini com a fantasia por cima.
 //
 // Coordenadas em células da baia (1 célula = 2,25 px na tela). L = coluna esquerda do mini.
 //
-// O mini sem fantasia (equipe.ts, mini()):
+// O mini sem fantasia (team.ts, mini()):
 //   cabeça   rect(L+2, 15, 8, 2)  -> linhas 15-16; olhos em (L+3,16) e (L+8,16)
 //   braços   rect(L, 17, 12, 2)   -> linhas 17-18, digitando (sobe 0,6 a cada 0,32 s)
 //   barriga/pernas linhas 19-22, escondidas atrás do laptop rect(L+1, 19, 10, 4)
