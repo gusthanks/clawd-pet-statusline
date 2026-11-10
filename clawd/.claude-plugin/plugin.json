@@ -1,9 +1,9 @@
 {
   "name": "clawd",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "Clawd, the little Claude Code crab, living animated above the message box, with costumed helpers and a progress bar.",
   "types": "./types/index.d.ts",
   "author": {
-    "name": "Gus"
+    "name": "Gustavo Costa (gusthx)"
   }
 }

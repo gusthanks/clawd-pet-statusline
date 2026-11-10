@@ -4,11 +4,23 @@ All notable changes to this project are recorded here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and versions
 follow [Semantic Versioning](https://semver.org/).
 
-## Unreleased
+## 0.4.0 - 2026-11-10
 
 ### Added
 
 - **Clawd animated in the terminal.** The terminal `claude` used to show only the static block logo; now the band above the prompt draws the same lane as the app (every scene, the mini-Clawds, rain, fireworks), 7 rows tall, with colored half blocks. Inside: `raster.ts` reads the lane's SVG (the subset the drawings use, animations included) and paints it frame by frame into a `Raster`, repainted by `$.ui.blit` about 12 times a second with no redraw of the band; the pixel grid follows the drawing that shows most, so Clawd walking stays crisp. The lane math moved into `laneArt`, shared by both surfaces. The band's clocks (mood, helpers, limits, weather) now also run in the terminal. A band under 6 rows or 24 columns keeps the logo.
+- In the terminal, the ultracode aura (a soft radial gradient) and the light streak no longer turn into a solid purple blob and a solid full-width line: they are skipped there, and two pixel-sized sparks blink around Clawd instead. Drawings can now say `data-term="skip"` or `data-term="only"` to differ between the desktop and the terminal.
+- `tools/term-preview.ts` renders the terminal frames to PNG outside Claude Code (Node 22.6+ and ImageMagick).
+- The screen-reader text of the lane (its `alt`) is in English, or in Portuguese when `LC_ALL`, `LC_MESSAGES` or `LANG` starts with `pt`.
+
+### Changed
+
+- English first: `README.md` is in English and the Portuguese text moved to `README.pt-BR.md`, each linking to the other. The issue templates are English GitHub issue forms. The installer prints English, or Portuguese with a `pt` locale.
+- Source files renamed to English: `tapinha.ts` is now `tap-reaction.ts`, `progresso.ts` is `progress.ts`, `fantasias.ts` is `costumes.ts` and `equipe.ts` is `team.ts`. Nothing changes for users; the installer copies the whole folder.
+
+### Fixed
+
+- The tests for the workflow progress bar failed outside Windows: their Windows-style fixture paths (`C:/Users/...`) were resolved against the mod's folder, so the fake disk never matched. Every test that drives the mod now has a 60-second timeout, so a slow or busy machine does not fail them.
 
 ## 0.3.0 - 2026-10-09
 
