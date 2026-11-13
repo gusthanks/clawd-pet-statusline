@@ -316,7 +316,7 @@ export function laneSvg(spec: Spec, elapsed: number, flags: Flags, height: numbe
       `<g transform="translate(${moveNow(t => t.bob)})">${move(t => t.bob)}` +
       BODY_KINDS.map(k => layer(`body:${k}`, BODIES[k])).join('') +
       FRONT_PROP_KINDS.map(k => layer(`prop:${k}`, phased(FRONT_PROPS[k], wall))).join('') +
-      `<g transform="translate(${moveNow(t => t.look)})">${move(t => t.look)}${EYE_KINDS.map(k => layer(`eyes:${k}`, phased(EYES[k], wall))).join('')}</g>` +
+      `<g${lane.desktopOnly ? '' : ' data-term="still"'} transform="translate(${moveNow(t => t.look)})">${move(t => t.look)}${EYE_KINDS.map(k => layer(`eyes:${k}`, phased(EYES[k], wall))).join('')}</g>` +
       `</g></g></g>`
     : ''
 

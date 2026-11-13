@@ -196,6 +196,21 @@ test('raster: no terminal, cada mini-Clawd tem dois olhos pretos (pixel inteiro)
   expect(layer).not.toContain('data-term')
 })
 
+test('raster: data-term="still" ignora o deslocamento de meio pixel (o olhar não pinta dois pixels)', () => {
+  // um "olho" de 1 pixel dentro de um corpo laranja, com o olhar meio pixel para a direita
+  const eye = (still: boolean) =>
+    `<svg width="100%" height="100%"><rect x="0" y="0" width="${8 * CELL}" height="${4 * CELL}" fill="#D87656"/>` +
+    `<g${still ? ' data-term="still"' : ''} transform="translate(${CELL} 0)"><rect x="${2 * CELL}" y="0" width="${2 * CELL}" height="${2 * CELL}" fill="#000000"/></g></svg>`
+  const blacks = (svg: string) => {
+    const w = cellsOf(frameAt(readSvg(svg), 0, 6, 2, CELL))
+    let n = 0
+    for (let i = 0; i < w.length; i += 3) n += w[i + 1] === 0 ? 1 : 0
+    return n
+  }
+  expect(blacks(eye(false))).toBe(2) // o defeito: o olho entre dois pixels pinta os dois
+  expect(blacks(eye(true))).toBe(1)
+})
+
 test('raster: o texto do desenho vira letras nas células', () => {
   const svg = `<svg width="100%" height="100%"><text x="${4 * CELL}" y="${3 * CELL}" font-size="4" fill="#8b95a5">z</text></svg>`
   const words = cellsOf(frameAt(readSvg(svg), 0, 10, 2, CELL))

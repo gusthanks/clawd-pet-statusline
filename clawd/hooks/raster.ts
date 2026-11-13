@@ -388,7 +388,9 @@ function draw(doc: Doc, cv: Canvas, node: Node, ctx: Ctx, t: number) {
   const opacity = ctx.opacity * (op === undefined ? 1 : Math.max(0, Math.min(1, Number(op))))
   if (opacity <= 0.02) return // invisível por inteiro, filhos também (opacity não é herdada para cima)
   const fill = node.a.fill ?? ctx.fill
-  let m = mul(ctx.m, transformAt(node, t))
+  // data-term="still": o terminal ignora o deslocamento deste grupo (o olhar de meio pixel do
+  // Clawd: lá o olho ficaria entre dois pixels e pintaria os dois)
+  let m = node.a['data-term'] === 'still' ? ctx.m : mul(ctx.m, transformAt(node, t))
   let vw = ctx.vw
   let vh = ctx.vh
   if (tag === 'svg') {

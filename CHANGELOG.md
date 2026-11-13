@@ -10,6 +10,7 @@ follow [Semantic Versioning](https://semver.org/).
 
 - **Mini-Clawds in the terminal have eyes.** A terminal pixel is 2 x 2 points of the drawing, and the mini's eyes were 1 point, so the orange around them won and the minis had blank faces. In the terminal each mini now gets its own whole-pixel drawing, shaped like the Claude Code logo: narrow head, two black eyes on the arm row, laptop and two legs. Typing, the claws tap down one at a time; holding a prop, the right claw stays up; partying, the eyes close in a smile. Costumes are unchanged, and the desktop draws exactly what it did before.
 - In the terminal, big Clawd's eyes while typing (looking down at the screen, half a pixel tall) were blended with the orange into a muddy brown. They are now crisp black pixels.
+- In the terminal, big Clawd's eyes no longer turn 2 pixels wide while he walks or looks around. The glance moves the eyes half a pixel, which the terminal cannot show, so the eye straddled two pixels and painted both; there the eyes now stay centered (a group marked `data-term="still"` keeps its offset on the desktop only). The brown eyes that remain are on purpose: the blink, the happy eyes and sleep.
 
 ### Fixed
 
