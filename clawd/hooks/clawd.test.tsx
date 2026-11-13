@@ -180,6 +180,22 @@ test('raster: o SVG animado vira células, e o quadro muda com o tempo', () => {
   expect(at(0)[0]).toBe(0x2580) // ▀: só a metade de cima da célula
 })
 
+test('raster: no terminal, cada mini-Clawd tem dois olhos pretos (pixel inteiro), digitando ou com fantasia', () => {
+  const H = 4 * 4 * CELL // 4 linhas de terminal
+  for (const costume of ['', 'engenheiro', 'detetive'] as Costume[]) {
+    const team: TeamMate[] = [{ id: 'a', costume, tone: 0 }]
+    const svg = `<svg width="${40 * CELL}" height="${H}">${helpersLayer(team, 6, BOX_W, BOX_H, CELL, H)}</svg>`
+    const words = cellsOf(frameAt(readSvg(svg), 0, 20, 4, CELL))
+    // ▀/▄/█ com a cor preta do olho, na frente ou no fundo da célula
+    let eyes = 0
+    for (let i = 0; i < words.length; i += 3) eyes += (words[i + 1] === 0 ? 1 : 0) + (words[i + 2] === 0 ? 1 : 0)
+    expect(eyes, costume || 'sem fantasia').toBe(2)
+  }
+  // o desktop não desenha o mini do terminal, e sem ele (desktopOnly) não sobra nada dele
+  const layer = helpersLayer([{ id: 'a', costume: '', tone: 0 }], 6, BOX_W, BOX_H, CELL, H, false, 0, false)
+  expect(layer).not.toContain('data-term')
+})
+
 test('raster: o texto do desenho vira letras nas células', () => {
   const svg = `<svg width="100%" height="100%"><text x="${4 * CELL}" y="${3 * CELL}" font-size="4" fill="#8b95a5">z</text></svg>`
   const words = cellsOf(frameAt(readSvg(svg), 0, 10, 2, CELL))

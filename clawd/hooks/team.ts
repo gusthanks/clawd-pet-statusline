@@ -38,6 +38,37 @@ const once = (tag: 'animate' | 'animateTransform', attr: string, values: string[
 // A ponta fica na linha 8, o cabo desce até a cabeça (linha 15).
 const miniUmbrella = (L: number) => `<g class="mini-umbrella">${umbrella(L + 6, 8, 6, 2)}</g>`
 
+// No terminal, 1 pixel = 2 x 2 células: os olhos de 1 célula do mini sumiam e os braços que sobem
+// 0,6 célula borravam. Lá vai este desenho próprio, em pixels inteiros, no jeito do Clawd do
+// logo do Claude Code: cabeça estreita, olhos na linha dos braços, laptop e duas pernas.
+//   linha 15  . O O O O .
+//   linha 17  b E O O E b    (b = braço; E = olho)
+//   linha 19  L L L L L L    (o laptop)
+//   linha 21  . O . . O .
+// Digitando, as garras descem uma de cada vez até o teclado. Com objeto (raise), a garra direita
+// fica levantada ao lado da cabeça. Comemorando, os olhos fecham (meio pixel: sorrindo) e a garra
+// direita sobe. O desktop não desenha nada disto (data-term="only").
+const px = (L: number, col: number, row: number, fill: string) => rect(L + 2 * col, TOP + 2 * row, 2, 2, fill)
+const tapping = (claw: string, values: string, b: number) =>
+  `<g>${claw}<animateTransform attributeName="transform" type="translate" values="${values}" dur="0.64s" begin="${b}s" calcMode="discrete" ${LOOP}/></g>`
+
+function termMini(L: number, b: number, raise: boolean, party: boolean): string {
+  const head = [1, 2, 3, 4].map(c => px(L, c, 0, ORANGE)).join('')
+  const face = party
+    ? [1, 4].map(c => px(L, c, 1, ORANGE) + rect(L + 2 * c, TOP + 3, 2, 1, EYE)).join('') + [2, 3].map(c => px(L, c, 1, ORANGE)).join('')
+    : [1, 4].map(c => px(L, c, 1, EYE)).join('') + [2, 3].map(c => px(L, c, 1, ORANGE)).join('')
+  const laptop = [0, 1, 2, 3, 4, 5].map(c => px(L, c, 2, LAPTOP)).join('')
+  const legs = px(L, 1, 3, ORANGE) + px(L, 4, 3, ORANGE)
+  const left = px(L, 0, 1, ORANGE)
+  const right = px(L, 5, 1, ORANGE)
+  const arms = party
+    ? left + px(L, 5, 0, ORANGE)
+    : raise
+      ? tapping(left, '0 0;0 2', b) + px(L, 5, 0, ORANGE)
+      : tapping(left, '0 0;0 2', b) + tapping(right, '0 2;0 0', b)
+  return `<g data-term="only" visibility="hidden">${head}${face}${laptop}${legs}${arms}</g>`
+}
+
 // A festa de um ajudante: `ago` = segundos desde que ela começou; `begin` = o começo das animações
 // já acertado para dar -ago depois que lane.ts aplicar a fase do relógio.
 export type Party = { ago: number; begin: number }
@@ -46,7 +77,7 @@ export type Party = { ago: number; begin: number }
 // garra levantada, rosto). Comemorando (`party`): para de digitar, a garra sobe ao lado da cabeça
 // (nunca por cima), os olhinhos viram "^ ^", o chapéu sobe e some, e o objeto fica de fora.
 // i = a posição na baia, que defasa as animações de loop (b = -i * 0,11 s, como os braços).
-export function mini(L: number, i: number, mate: Pick<TeamMate, 'costume' | 'tone'>, rain: boolean, party: Party | null = null): string {
+export function mini(L: number, i: number, mate: Pick<TeamMate, 'costume' | 'tone'>, rain: boolean, party: Party | null = null, term = true): string {
   const b = round(-i * 0.11)
   const art = mate.costume ? COSTUMES[mate.costume] : undefined
   const tone = mate.tone
@@ -58,6 +89,8 @@ export function mini(L: number, i: number, mate: Pick<TeamMate, 'costume' | 'ton
     rect(L + 1, TOP + 4, 10, 4, LAPTOP) +
     rect(L + 5.5, TOP + 5.5, 1, 1, LAPTOP_DOT)
   const umb = rain ? miniUmbrella(L) : ''
+  // o corpo do desktop; com `term`, ele some no terminal e o desenho em pixels inteiros entra no lugar
+  const desk = (body: string, raise = false) => (term ? `<g data-term="skip">${body}</g>${termMini(L, b, raise, !!party)}` : body)
   const face = art?.face?.(L) ?? ''
   // chovendo, o guarda-chuva cobre a cabeça e o chapéu fica guardado
   const hat = art && !rain ? art.hat(L, tone) : ''
@@ -81,7 +114,7 @@ export function mini(L: number, i: number, mate: Pick<TeamMate, 'costume' | 'ton
           once('animate', 'opacity', fade, HAT_S, party.begin) +
           `</g>`
         : ''
-    return head + happy + rect(L, TOP + 2, 10, 2, ORANGE) + claw + lower + umb + face + flying
+    return desk(head + happy + rect(L, TOP + 2, 10, 2, ORANGE) + claw + lower) + umb + face + flying
   }
 
   // digitando: com objeto na mão, a garra direita sobe e os braços que digitam encolhem
@@ -90,7 +123,8 @@ export function mini(L: number, i: number, mate: Pick<TeamMate, 'costume' | 'ton
     `<g>${rect(L, TOP + 2, raise ? 10 : 12, 2, ORANGE)}` +
     `<animateTransform attributeName="transform" type="translate" values="0 0;0 -0.6" dur="0.32s" begin="${b}s" calcMode="discrete" ${LOOP}/></g>`
   const eyes = cells([[L + 3, TOP + 1], [L + 8, TOP + 1]], EYE)
-  return head + eyes + arms + (raise ? rect(L + 10, TOP, 2, 2, ORANGE) : '') + lower + hat + umb + face + (art?.prop?.(L, b, tone) ?? '')
+  const body = head + eyes + arms + (raise ? rect(L + 10, TOP, 2, 2, ORANGE) : '') + lower
+  return desk(body, raise) + hat + umb + face + (art?.prop?.(L, b, tone) ?? '')
 }
 
 // Retângulos parados vizinhos da mesma cor viram um <path> só: o desenho é o mesmo (mesmas células,
@@ -164,6 +198,7 @@ export function helpersLayer(
   height: number,
   rain = false,
   wall = 0,
+  term = true,
 ): string {
   const shown = Math.min(team.length, cap, MAX_MINIS)
   if (shown <= 0) return ''
@@ -173,7 +208,7 @@ export function helpersLayer(
     .slice(0, shown)
     .map((m, i) => {
       const ago = m.doneAt === undefined ? null : Math.max(0, wall - m.doneAt / 1000)
-      return mini(leftOf(i), i, m, rain, ago === null ? null : { ago, begin: round(phase - ago) })
+      return mini(leftOf(i), i, m, rain, ago === null ? null : { ago, begin: round(phase - ago) }, term)
     })
     .join('')
   const extra =

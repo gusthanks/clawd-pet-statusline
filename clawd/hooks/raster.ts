@@ -381,8 +381,9 @@ function draw(doc: Doc, cv: Canvas, node: Node, ctx: Ctx, t: number) {
   // máscara) que viram bloco chapado quando espremidos em células.
   if (node.a['data-term'] === 'skip') return
   const vis = attrAt(node, 'visibility', t)
-  // data-term="only": escondido no desktop (visibility="hidden"), desenhado no terminal
-  const visible = node.a['data-term'] === 'only' ? true : vis === 'hidden' ? false : vis === 'visible' ? true : ctx.visible
+  // data-term="only": escondido no desktop (visibility="hidden"), desenhado no terminal. O hidden
+  // dele mesmo não vale aqui, mas o do grupo de fora sim (um quadro do laptop fora de hora some).
+  const visible = node.a['data-term'] === 'only' ? ctx.visible : vis === 'hidden' ? false : vis === 'visible' ? true : ctx.visible
   const op = attrAt(node, 'opacity', t)
   const opacity = ctx.opacity * (op === undefined ? 1 : Math.max(0, Math.min(1, Number(op))))
   if (opacity <= 0.02) return // invisível por inteiro, filhos também (opacity não é herdada para cima)

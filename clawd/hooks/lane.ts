@@ -254,7 +254,8 @@ function both(
 // team: os ajudantes na baia, na ordem em que chegaram (cada um com a fantasia dele)
 // fireworks: segundos desde o commit (os fogos começam do zero), ou null sem fogos
 // reach: quantos px ele anda da ponta direita até a ponta esquerda (estimativa conservadora)
-export type Lane = { team: readonly TeamMate[]; cap: number; fireworks: number | null; shift: { dx: number; ago: number } | null; reach: number }
+// desktopOnly: sem os desenhos que só o terminal usa (data-term="only"), para caber no limite do app
+export type Lane = { team: readonly TeamMate[]; cap: number; fireworks: number | null; shift: { dx: number; ago: number } | null; reach: number; desktopOnly?: boolean }
 
 // As animações miúdas dos desenhos (piscar, chuva, aura, fumaça, mini-Clawds) recebem a
 // fase do relógio: um redesenho cria uma imagem nova, e sem isso todas voltariam ao começo.
@@ -265,6 +266,17 @@ export function phased(art: string, wall: number): string {
     const begin = round((b ? Number(b[1]) : 0) - phase)
     return `<${tag}${b ? attrs.replace(b[0], ` begin="${begin}s"`) : `${attrs} begin="${begin}s"`}${slash}>`
   })
+}
+
+// Uma cor de um quadro do laptop. Os olhos olhando para a tela têm meia linha (1 célula de altura):
+// no terminal (1 pixel = 2 x 2 células) eles saíam misturados com o laranja, um marrom borrado.
+// Lá eles ganham o pixel inteiro, pretos e nítidos como no Clawd de frente.
+const EYE_DOWN = /M(\d+) 10h2v1h-2z/g
+function laptopPath(fill: string, d: string, term: boolean): string {
+  const path = `<path fill="${fill}" d="${d}"/>`
+  const eyes = d.replace(EYE_DOWN, 'M$1 9h2v2h-2z')
+  if (!term || fill !== LAPTOP_COLORS[1] || eyes === d) return path
+  return `<g data-term="skip">${path}</g><path data-term="only" visibility="hidden" fill="${fill}" d="${eyes}"/>`
 }
 
 export function laneSvg(spec: Spec, elapsed: number, flags: Flags, height: number, lane: Lane, wall: number): string {
@@ -294,7 +306,7 @@ export function laneSvg(spec: Spec, elapsed: number, flags: Flags, height: numbe
 
   const frameIds = [...new Set([...spec.intro, ...spec.loop].flatMap(s => s.pose.laptop ?? []))]
   const laptopFrames = frameIds
-    .map(id => layer(`frame:${id}`, LAPTOP_FRAMES[id].map((d, c) => (d ? `<path fill="${LAPTOP_COLORS[c]}" d="${d}"/>` : '')).join('')))
+    .map(id => layer(`frame:${id}`, LAPTOP_FRAMES[id].map((d, c) => (d ? laptopPath(LAPTOP_COLORS[c], d, !lane.desktopOnly) : '')).join('')))
     .join('')
 
   const front = used('front')
@@ -342,7 +354,7 @@ export function laneSvg(spec: Spec, elapsed: number, flags: Flags, height: numbe
     (flags.night ? phased(skyLayer(flags.rain), wall) : '') +
     (flags.rain ? phased(rainLayer(height), wall) : '') +
     // a festa de quem terminou conta do relógio também: o begin dela já desconta esta fase
-    phased(helpersLayer(lane.team, lane.cap, BOX_W, BOX_H, CELL, height, flags.rain, wall), wall) +
+    phased(helpersLayer(lane.team, lane.cap, BOX_W, BOX_H, CELL, height, flags.rain, wall, !lane.desktopOnly), wall) +
     // a imagem já nasce com o Clawd onde ele está agora: se o app mostrar um quadro antes de as
     // animações começarem (ele recria a imagem a cada redesenho, como no tapinha), as duas partes
     // da posição (a % da pista e a volta em células) continuam juntas e ele não aparece cortado
@@ -372,11 +384,15 @@ export function laneSvg(spec: Spec, elapsed: number, flags: Flags, height: numbe
 // também). Quem chega perto do limite é o passeio do Clawd numa pista muito larga (~4000 px):
 // numa pista assim ele sozinho já passa de SVG_SAFE.
 export function fitLane(spec: Spec, elapsed: number, flags: Flags, height: number, lane: Lane, wall: number): string {
-  let art = laneSvg(spec, elapsed, flags, height, lane, wall)
-  if (art.length > SVG_SAFE && lane.fireworks !== null) art = laneSvg(spec, elapsed, flags, height, { ...lane, fireworks: null }, wall)
-  if (art.length > SVG_SAFE && lane.team.some(m => m.costume)) {
-    const plain = lane.team.map(m => ({ ...m, costume: '' as const }))
-    art = laneSvg(spec, elapsed, flags, height, { ...lane, fireworks: null, team: plain }, wall)
+  let l = lane
+  let art = laneSvg(spec, elapsed, flags, height, l, wall)
+  // a reserva, nesta ordem: os desenhos só do terminal (o desktop nem os mostra; a pista do
+  // terminal é estreita e nunca chega aqui), os fogos e depois as fantasias
+  if (art.length > SVG_SAFE && !l.desktopOnly) art = laneSvg(spec, elapsed, flags, height, (l = { ...l, desktopOnly: true }), wall)
+  if (art.length > SVG_SAFE && l.fireworks !== null) art = laneSvg(spec, elapsed, flags, height, (l = { ...l, fireworks: null }), wall)
+  if (art.length > SVG_SAFE && l.team.some(m => m.costume)) {
+    const plain = l.team.map(m => ({ ...m, costume: '' as const }))
+    art = laneSvg(spec, elapsed, flags, height, (l = { ...l, team: plain }), wall)
   }
   return art
 }

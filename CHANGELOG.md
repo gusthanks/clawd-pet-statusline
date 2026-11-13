@@ -4,6 +4,18 @@ All notable changes to this project are recorded here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and versions
 follow [Semantic Versioning](https://semver.org/).
 
+## Unreleased
+
+### Changed
+
+- **Mini-Clawds in the terminal have eyes.** A terminal pixel is 2 x 2 points of the drawing, and the mini's eyes were 1 point, so the orange around them won and the minis had blank faces. In the terminal each mini now gets its own whole-pixel drawing, shaped like the Claude Code logo: narrow head, two black eyes on the arm row, laptop and two legs. Typing, the claws tap down one at a time; holding a prop, the right claw stays up; partying, the eyes close in a smile. Costumes are unchanged, and the desktop draws exactly what it did before.
+- In the terminal, big Clawd's eyes while typing (looking down at the screen, half a pixel tall) were blended with the orange into a muddy brown. They are now crisp black pixels.
+
+### Fixed
+
+- In the terminal, a drawing marked `data-term="only"` showed up even while its layer was hidden. It now follows the layer around it.
+- When the desktop lane runs over the app's size limit, the terminal-only drawings are the first thing dropped (before fireworks and costumes), so the worst case still fits.
+
 ## 0.4.0 - 2026-11-10
 
 ### Added
