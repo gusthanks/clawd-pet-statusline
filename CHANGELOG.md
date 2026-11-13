@@ -12,6 +12,8 @@ follow [Semantic Versioning](https://semver.org/).
 - In the terminal, big Clawd's eyes while typing (looking down at the screen, half a pixel tall) were blended with the orange into a muddy brown. They are now crisp black pixels.
 - In the terminal, big Clawd's eyes no longer turn 2 pixels wide while he walks or looks around. The glance moves the eyes half a pixel, which the terminal cannot show, so the eye straddled two pixels and painted both; there the eyes now stay centered (a group marked `data-term="still"` keeps its offset on the desktop only). The brown eyes that remain are on purpose: the blink, the happy eyes and sleep.
 
+- `docs/demo.gif` redrawn from the current code (the old one showed the 2-pixel eyes). `tools/demo-gif.ts` repaints the Clawd band in every frame of the GIF and keeps the made-up window around it, so it can be redone whenever the drawings change.
+
 ### Fixed
 
 - In the terminal, a drawing marked `data-term="only"` showed up even while its layer was hidden. It now follows the layer around it.
