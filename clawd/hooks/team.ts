@@ -40,33 +40,33 @@ const miniUmbrella = (L: number) => `<g class="mini-umbrella">${umbrella(L + 6, 
 
 // No terminal, 1 pixel = 2 x 2 células: os olhos de 1 célula do mini sumiam e os braços que sobem
 // 0,6 célula borravam. Lá vai este desenho próprio, em pixels inteiros, no jeito do Clawd do
-// logo do Claude Code: cabeça estreita, olhos na linha dos braços, laptop e duas pernas.
+// logo do Claude Code: cabeça estreita, olhos na linha dos braços e o laptop na frente.
 //   linha 15  . O O O O .
 //   linha 17  b E O O E b    (b = braço; E = olho)
-//   linha 19  L L L L L L    (o laptop)
-//   linha 21  . O . . O .
-// Digitando, as garras descem uma de cada vez até o teclado. Com objeto (raise), a garra direita
-// fica levantada ao lado da cabeça. Comemorando, os olhos fecham (meio pixel: sorrindo) e a garra
-// direita sobe. O desktop não desenha nada disto (data-term="only").
-const px = (L: number, col: number, row: number, fill: string) => rect(L + 2 * col, TOP + 2 * row, 2, 2, fill)
-const tapping = (claw: string, values: string, b: number) =>
-  `<g>${claw}<animateTransform attributeName="transform" type="translate" values="${values}" dur="0.64s" begin="${b}s" calcMode="discrete" ${LOOP}/></g>`
+//   linha 19  l l l l l l    (o laptop visto de trás: a borda da tampa, mais escura)
+//   linha 21  L L L L L L    (as pernas ficam escondidas atrás dele, como no desktop)
+// O contorno nunca muda: no terminal, uma garra descendo comia um pixel do laptop e o mini
+// mudava de largura a cada batida. A vida vem da piscada (cada mini no seu tempo). Com objeto
+// (raise), a garra direita fica levantada ao lado da cabeça. Comemorando, os olhos fecham (meio
+// pixel: sorrindo) e a garra direita sobe. O desktop não desenha nada disto (data-term="only").
+const LAPTOP_EDGE = '#6e6e6e'
+const px = (L: number, col: number, row: number, fill: string, inner = '') => rect(L + 2 * col, TOP + 2 * row, 2, 2, fill, inner)
+// a piscada do olho: meio pixel por um instante (no terminal, um olho fechado é marrom)
+const blink = (b: number) =>
+  `<animate attributeName="height" values="2;1;2" keyTimes="0;0.95;0.985" dur="4s" begin="${b}s" calcMode="discrete" ${LOOP}/>` +
+  `<animate attributeName="y" values="${TOP + 2};${TOP + 3};${TOP + 2}" keyTimes="0;0.95;0.985" dur="4s" begin="${b}s" calcMode="discrete" ${LOOP}/>`
 
 function termMini(L: number, b: number, raise: boolean, party: boolean): string {
-  const head = [1, 2, 3, 4].map(c => px(L, c, 0, ORANGE)).join('')
-  const face = party
-    ? [1, 4].map(c => px(L, c, 1, ORANGE) + rect(L + 2 * c, TOP + 3, 2, 1, EYE)).join('') + [2, 3].map(c => px(L, c, 1, ORANGE)).join('')
-    : [1, 4].map(c => px(L, c, 1, EYE)).join('') + [2, 3].map(c => px(L, c, 1, ORANGE)).join('')
-  const laptop = [0, 1, 2, 3, 4, 5].map(c => px(L, c, 2, LAPTOP)).join('')
-  const legs = px(L, 1, 3, ORANGE) + px(L, 4, 3, ORANGE)
-  const left = px(L, 0, 1, ORANGE)
-  const right = px(L, 5, 1, ORANGE)
-  const arms = party
-    ? left + px(L, 5, 0, ORANGE)
-    : raise
-      ? tapping(left, '0 0;0 2', b) + px(L, 5, 0, ORANGE)
-      : tapping(left, '0 0;0 2', b) + tapping(right, '0 2;0 0', b)
-  return `<g data-term="only" visibility="hidden">${head}${face}${laptop}${legs}${arms}</g>`
+  const head = rect(L + 2, TOP, 8, 2, ORANGE)
+  const row = rect(L, TOP + 2, 12, 2, ORANGE)
+  // b vem em passos de -0,11 s por mini: vezes 7, as piscadas ficam bem espalhadas
+  const eyes = party
+    ? rect(L + 2, TOP + 3, 2, 1, EYE) + rect(L + 8, TOP + 3, 2, 1, EYE)
+    : px(L, 1, 1, EYE, blink(round(b * 7))) + px(L, 4, 1, EYE, blink(round(b * 7)))
+  const laptop = rect(L, TOP + 4, 12, 2, LAPTOP_EDGE) + rect(L, TOP + 6, 12, 2, LAPTOP)
+  // garra direita levantada ao lado da cabeça: com objeto, ou comemorando
+  const up = party || raise ? px(L, 5, 0, ORANGE) : ''
+  return `<g data-term="only" visibility="hidden">${head}${row}${eyes}${laptop}${up}</g>`
 }
 
 // A festa de um ajudante: `ago` = segundos desde que ela começou; `begin` = o começo das animações
