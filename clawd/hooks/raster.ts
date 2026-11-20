@@ -285,7 +285,9 @@ function pathPolys(d: string): [number, number][][] {
 // ---------- a tela de pontos ----------
 
 export type Grid = { w: number; h: number; unit: number }
-type Canvas = Grid & { color: Int32Array; layer: Int32Array; texts: TextMark[]; layers: number }
+// actor: de quem é cada ponto (0 = cenário; cada grupo com data-grid ganha um número), para cada
+// personagem ter a sua grade de pixels. cur = o personagem sendo desenhado agora.
+type Canvas = Grid & { color: Int32Array; layer: Int32Array; actor: Int32Array; texts: TextMark[]; layers: number; actors: number; cur: number }
 type TextMark = { x: number; y: number; size: number; anchor: string; text: string; color: number }
 
 const NONE = -1
@@ -328,6 +330,7 @@ function plot(cv: Canvas, i: number, color: number, alpha: number) {
     cv.color[i] = color
   } else cv.color[i] = alpha >= 0.999 ? color : mix(color, under, alpha)
   cv.layer[i] = cv.layers
+  cv.actor[i] = cv.cur
 }
 
 // Pinta os pontos cujo centro cai dentro dos polígonos (par-ímpar), em px do desenho.
@@ -411,11 +414,14 @@ function draw(doc: Doc, cv: Canvas, node: Node, ctx: Ctx, t: number) {
     }
   }
   const here: Ctx = { m, vw, vh, opacity, visible, fill }
+  // data-grid: um personagem (o Clawd, a baia dos mini-Clawds) com grade de pixels própria
+  const outer = cv.cur
+  if (node.a['data-grid'] !== undefined) cv.cur = ++cv.actors
   if (tag === 'use') {
     const ref = doc.ids.get((node.a.href ?? node.a['xlink:href'] ?? '').replace(/^#/, ''))
-    if (!ref) return
     const at = mul(m, translate(len(attrAt(node, 'x', t), vw), len(attrAt(node, 'y', t), vh)))
-    draw(doc, cv, { ...ref, tag: ref.tag === 'symbol' ? 'g' : ref.tag }, { ...here, m: at }, t)
+    if (ref) draw(doc, cv, { ...ref, tag: ref.tag === 'symbol' ? 'g' : ref.tag }, { ...here, m: at }, t)
+    cv.cur = outer
     return
   }
   if (visible && fill !== 'none') {
@@ -449,6 +455,7 @@ function draw(doc: Doc, cv: Canvas, node: Node, ctx: Ctx, t: number) {
     }
   }
   for (const kid of node.kids) draw(doc, cv, kid, here, t)
+  cv.cur = outer
 }
 
 // ---------- de pontos para células ----------
@@ -499,17 +506,35 @@ function pixel(cv: Canvas, gx: number, gy: number): number {
   return best
 }
 
-// Quantos pixels saem "misturados" (pontos de cores diferentes) com a grade deslocada assim.
-function blur(cv: Canvas, ox: number, oy: number, cols: number, prows: number): number {
+// Quantos pixels do personagem `who` saem "misturados" (pontos de cores diferentes) com a grade
+// deslocada assim. Conta o pixel que tem pelo menos um ponto pintado dele.
+function blur(cv: Canvas, ox: number, oy: number, cols: number, prows: number, who: number): number {
   let n = 0
   for (let py = 0; py < prows; py++)
     for (let px = 0; px < cols; px++) {
-      const gx = 2 * px + ox
-      const gy = 2 * py + oy
-      const a = cv.color[gy * cv.w + gx]
-      if (cv.color[gy * cv.w + gx + 1] !== a || cv.color[(gy + 1) * cv.w + gx] !== a || cv.color[(gy + 1) * cv.w + gx + 1] !== a) n++
+      const i = (2 * py + oy) * cv.w + 2 * px + ox
+      const q = [i, i + 1, i + cv.w, i + cv.w + 1]
+      if (!q.some(k => cv.color[k] !== NONE && cv.actor[k] === who)) continue
+      const a = cv.color[i]
+      if (cv.color[q[1]] !== a || cv.color[q[2]] !== a || cv.color[q[3]] !== a) n++
     }
   return n
+}
+
+// O personagem dono do pixel (px, py): o de cima entre os pontos que qualquer das grades
+// leria (3 x 3 pontos); 0 (o cenário) quando nenhum personagem passa por ali.
+function ownerOf(cv: Canvas, px: number, py: number): number {
+  let who = 0
+  let top = -1
+  for (let y = 2 * py; y <= 2 * py + 2 && y < cv.h; y++)
+    for (let x = 2 * px; x <= 2 * px + 2 && x < cv.w; x++) {
+      const i = y * cv.w + x
+      if (cv.color[i] !== NONE && cv.actor[i] > 0 && cv.layer[i] > top) {
+        top = cv.layer[i]
+        who = cv.actor[i]
+      }
+    }
+  return who
 }
 
 function encode(words: Uint32Array): string {
@@ -537,22 +562,41 @@ export function frameAt(doc: Doc, t: number, cols: number, rows: number, unit: n
   const prows = rows * 2
   const w = cols * 2 + 1 // um ponto a mais em cada lado: a grade dos pixels pode andar meio pixel
   const h = prows * 2 + 1
-  const cv: Canvas = { w, h, unit, color: new Int32Array(w * h).fill(NONE), layer: new Int32Array(w * h), texts: [], layers: 0 }
+  const cv: Canvas = {
+    w,
+    h,
+    unit,
+    color: new Int32Array(w * h).fill(NONE),
+    layer: new Int32Array(w * h),
+    actor: new Int32Array(w * h),
+    texts: [],
+    layers: 0,
+    actors: 0,
+    cur: 0,
+  }
   draw(doc, cv, doc.root, { m: ID, vw: cols * 2 * unit, vh: prows * 2 * unit, opacity: 1, visible: true, fill: undefined }, t)
-  // a grade dos pixels vai junto com o desenho que mais aparece (o Clawd andando cai em meio pixel)
-  let ox = 0
-  let oy = 0
-  let least = Infinity
-  for (const [x, y] of [[0, 0], [1, 0], [0, 1], [1, 1]]) {
-    const b = blur(cv, x, y, cols, prows)
-    if (b < least) {
-      least = b
-      ox = x
-      oy = y
+  // a grade dos pixels vai junto com cada personagem (o Clawd andando cai em meio pixel). Uma grade
+  // só para a pista inteira brigava: com mini-Clawds na baia, ela pulava entre o Clawd e eles a
+  // cada passo, e quem perdia saía borrado e meio pixel mais largo, piscando.
+  const ox = new Int8Array(cv.actors + 1)
+  const oy = new Int8Array(cv.actors + 1)
+  for (let who = 0; who <= cv.actors; who++) {
+    let least = Infinity
+    for (const [x, y] of [[0, 0], [1, 0], [0, 1], [1, 1]]) {
+      const b = blur(cv, x, y, cols, prows, who)
+      if (b < least) {
+        least = b
+        ox[who] = x
+        oy[who] = y
+      }
     }
   }
   const px = new Int32Array(cols * prows)
-  for (let y = 0; y < prows; y++) for (let x = 0; x < cols; x++) px[y * cols + x] = pixel(cv, 2 * x + ox, 2 * y + oy)
+  for (let y = 0; y < prows; y++)
+    for (let x = 0; x < cols; x++) {
+      const who = cv.actors ? ownerOf(cv, x, y) : 0
+      px[y * cols + x] = pixel(cv, 2 * x + ox[who], 2 * y + oy[who])
+    }
   const words = new Uint32Array(cols * rows * 3)
   for (let r = 0; r < rows; r++)
     for (let c = 0; c < cols; c++) {

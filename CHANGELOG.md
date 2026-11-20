@@ -16,6 +16,7 @@ follow [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- **In the terminal, Clawd and the mini-Clawds no longer flicker and grow while subagents run.** The whole band shared one pixel grid that followed "the drawing that shows most". Clawd walks half a pixel per step, so with mini-Clawds in their bay the grid jumped between him and them on every step, and whoever lost came out blurred and one pixel wider: the minis merged into a wide strip, and Clawd got tall brown eyes and fuzzy edges. Now each character has its own grid: a group marked `data-grid` (Clawd's sprite and the helpers' bay) picks the half-pixel offset that keeps it crisp, and the rest of the scene (rain, sparks, fireworks) keeps its own.
 - In the terminal, a drawing marked `data-term="only"` showed up even while its layer was hidden. It now follows the layer around it.
 - When the desktop lane runs over the app's size limit, the terminal-only drawings are the first thing dropped (before fireworks and costumes), so the worst case still fits.
 

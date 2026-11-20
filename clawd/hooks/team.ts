@@ -215,5 +215,6 @@ export function helpersLayer(
     team.length > shown
       ? `<text x="${leftOf(shown - 1) + 6}" y="7" text-anchor="middle" font-family="monospace" font-weight="bold" font-size="4" fill="#c4b5fd">+${team.length - shown}</text>`
       : ''
-  return `<svg x="100%" y="${round(height - boxH * cell)}" width="${boxW * cell}" height="${boxH * cell}" viewBox="0 0 ${boxW} ${boxH}" overflow="visible">${compact(minis)}${extra}</svg>`
+  // data-grid: no terminal a baia tem a grade de pixels dela, separada da do Clawd que anda
+  return `<svg x="100%" y="${round(height - boxH * cell)}" width="${boxW * cell}" height="${boxH * cell}" viewBox="0 0 ${boxW} ${boxH}" overflow="visible"${term ? ' data-grid="team"' : ''}>${compact(minis)}${extra}</svg>`
 }

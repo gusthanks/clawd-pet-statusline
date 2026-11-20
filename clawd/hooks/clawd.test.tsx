@@ -211,6 +211,23 @@ test('raster: data-term="still" ignora o deslocamento de meio pixel (o olhar nã
   expect(blacks(eye(true))).toBe(1)
 })
 
+test('raster: cada data-grid tem a sua grade (o Clawd andando não borra os mini-Clawds)', () => {
+  // dois blocos de 2 x 2 pixels, um deles meio pixel fora da grade do outro: com uma grade só,
+  // um dos dois sai borrado e um pixel mais largo (3 colunas em vez de 2)
+  const pair = (grid: boolean) =>
+    `<svg width="100%" height="100%">` +
+    `<g${grid ? ' data-grid="a"' : ''}><rect x="${2 * CELL}" y="0" width="${4 * CELL}" height="${4 * CELL}" fill="#D87656"/></g>` +
+    `<g${grid ? ' data-grid="b"' : ''}><rect x="${11 * CELL}" y="0" width="${4 * CELL}" height="${4 * CELL}" fill="#D87656"/></g></svg>`
+  const widths = (svg: string) => {
+    const w = cellsOf(frameAt(readSvg(svg), 0, 10, 1, CELL))
+    const cols = [...Array(10).keys()].filter(c => w[c * 3] !== 0x20)
+    const left = cols.filter(c => c < 4).length
+    return [left, cols.length - left]
+  }
+  expect(widths(pair(false))).not.toEqual([2, 2]) // o defeito
+  expect(widths(pair(true))).toEqual([2, 2])
+})
+
 test('raster: o texto do desenho vira letras nas células', () => {
   const svg = `<svg width="100%" height="100%"><text x="${4 * CELL}" y="${3 * CELL}" font-size="4" fill="#8b95a5">z</text></svg>`
   const words = cellsOf(frameAt(readSvg(svg), 0, 10, 2, CELL))

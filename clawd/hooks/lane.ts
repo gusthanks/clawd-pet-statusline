@@ -361,7 +361,8 @@ export function laneSvg(spec: Spec, elapsed: number, flags: Flags, height: numbe
     // o desenho do Clawd fica guardado em <defs> (em células) e aparece por um <use>, que anda em %
     // da imagem como a chuva: um <svg> interno, no quadro em que o app troca a imagem, às vezes
     // perde a posição e o Clawd aparecia cortado no começo da pista
-    `<defs><g id="clawd-sprite"><g transform="scale(${CELL})">` +
+    // data-grid: no terminal o Clawd tem a grade de pixels dele, separada da dos mini-Clawds
+    `<defs><g id="clawd-sprite"${lane.desktopOnly ? '' : ' data-grid="clawd"'}><g transform="scale(${CELL})">` +
     `<g transform="translate(${at(p0)})">${glide('transform', 'animateTransform', at)}<g>${slide}` +
     aura +
     (squashed ? `<g transform="translate(${SQUASH_X} ${BOX_H})"><g transform="scale(${nowOf(t => t.squash, '1 1')})">${squashAnim}<g transform="translate(${-SQUASH_X} ${-BOX_H})">` : '') +
