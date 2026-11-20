@@ -228,6 +228,38 @@ test('raster: cada data-grid tem a sua grade (o Clawd andando não borra os mini
   expect(widths(pair(true))).toEqual([2, 2])
 })
 
+test('raster: na pista de verdade, o Clawd andando e os mini-Clawds saem iguais juntos ou sozinhos', () => {
+  // o defeito do vídeo de 2026-11-19: com uma grade só, o Clawd andando meio pixel por passo e a
+  // baia brigavam por ela; quem perdia saía borrado e mais largo, piscando
+  const COLS = 80
+  const ROWS = 7
+  const travel = COLS * 2 * CELL - PAD - (BOX_W + helpersZone(3)) * CELL
+  const walk: Step = { d: Math.max(0.4, travel / WALK_PX), p0: 1, p1: 0, pose: { eyes: 'open', motion: 'walk', look: -1 } }
+  const spec: Spec = { ...buildScene('idle', 1, true, travel, false), loop: [stand(1, 1), walk] }
+  const flags: Flags = { tired: false, worried: false, morning: false, night: false, tool: '', rain: false, ultra: false, hat: '' }
+  const bay = (3 * MINI_STEP) / 2 // as colunas dos 3 minis, no canto direito
+  for (const costumes of [['', '', ''], ['piloto', 'pirata', 'detetive']] as Costume[][]) {
+    const team: TeamMate[] = costumes.map((costume, k) => ({ id: `a${k}`, costume, tone: k }))
+    const full = laneSvg(spec, 0, flags, ROWS * 4 * CELL, { team, cap: 6, fireworks: null, shift: null, reach: travel }, WALL)
+    // a mesma pista só com a baia, e só com o Clawd
+    const a = full.indexOf('<svg x="100%"')
+    const b = full.indexOf('<defs><g id="clawd-sprite"')
+    expect(a).toBeGreaterThan(0)
+    expect(b).toBeGreaterThan(a)
+    const docs = [full, full.slice(0, full.indexOf('>') + 1) + full.slice(a, b) + '</svg>', full.slice(0, a) + full.slice(b)].map(s => readSvg(s))
+    const part = (w: Uint32Array, lo: number, hi: number) => {
+      const out: number[] = []
+      for (let r = 0; r < ROWS; r++) for (let k = lo; k < hi; k++) out.push(...w.slice((r * COLS + k) * 3, (r * COLS + k) * 3 + 3))
+      return out.join()
+    }
+    for (let t = 1; t < 4; t += 0.04) {
+      const [together, minis, clawd] = docs.map(d => cellsOf(frameAt(d, t, COLS, ROWS, CELL)))
+      expect(part(together, COLS - bay, COLS), `minis, t=${t.toFixed(2)}`).toBe(part(minis, COLS - bay, COLS))
+      expect(part(together, 0, COLS - bay), `Clawd, t=${t.toFixed(2)}`).toBe(part(clawd, 0, COLS - bay))
+    }
+  }
+})
+
 test('raster: o texto do desenho vira letras nas células', () => {
   const svg = `<svg width="100%" height="100%"><text x="${4 * CELL}" y="${3 * CELL}" font-size="4" fill="#8b95a5">z</text></svg>`
   const words = cellsOf(frameAt(readSvg(svg), 0, 10, 2, CELL))
